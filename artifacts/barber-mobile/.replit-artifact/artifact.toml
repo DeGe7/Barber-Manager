@@ -1,0 +1,7 @@
+kind = "mobile"
+previewPath = "/barber-mobile/"
+title = "Barber Mobile (retired)"
+description = "Retired after consolidating the daily operations workflow into Barber Manager."
+version = "1.0.0"
+id = "artifacts/barber-mobile"
+router = "expo-domain"
