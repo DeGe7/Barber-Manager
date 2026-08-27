@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Barber Manager"
+description = "Sistema de gestão completo para barbearias: agenda, controle diário de atendimentos, financeiro, clientes, profissionais, estoque de produtos, vendas de prótese, planos de assinatura e configurações. Interface dark com identidade dourada, com modelo de permissões por papel (gestor, barbeiro, manicure, vendedor)."
+version = "1.0.0"
+id = "artifacts/barber-manager"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23945
+
+[services.development]
+run = "pnpm --filter @workspace/barber-manager run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/barber-manager", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/barber-manager/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23945"
+BASE_PATH = "/"
