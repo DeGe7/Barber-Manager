@@ -18,10 +18,18 @@ export default function Produtos() {
 
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newP.name || !newP.price || !newP.cost) { toast.error('Preencha os campos obrigatórios'); return; }
+    const price = Number(newP.price);
+    const cost = Number(newP.cost);
+    const stock = Number(newP.stock || 0);
+    const minStock = Number(newP.minStock || 0);
+    if (!newP.name || !Number.isFinite(price) || price <= 0 || !Number.isFinite(cost) || cost < 0 ||
+        !Number.isFinite(stock) || stock < 0 || !Number.isFinite(minStock) || minStock < 0) {
+      toast.error('Informe valores válidos e não negativos');
+      return;
+    }
     addProduct({
-      name: newP.name, category: newP.category || 'Geral', price: Number(newP.price), cost: Number(newP.cost),
-      stock: Number(newP.stock)||0, minStock: Number(newP.minStock)||0, isActive: true
+      name: newP.name, category: newP.category || 'Geral', price, cost,
+      stock, minStock, isActive: true
     });
     toast.success('Produto adicionado');
     setIsAdding(false);
@@ -33,7 +41,14 @@ export default function Produtos() {
   const startEdit = (p: Product) => { setEditingId(p.id); setEditForm({ ...p }); };
   const cancelEdit = () => { setEditingId(null); };
   const saveEdit = () => {
-    updateProduct(editingId!, { name: editForm.name, category: editForm.category, price: Number(editForm.price), cost: Number(editForm.cost), minStock: Number(editForm.minStock) });
+    const price = Number(editForm.price);
+    const cost = Number(editForm.cost);
+    const minStock = Number(editForm.minStock);
+    if (!editForm.name || !Number.isFinite(price) || price <= 0 || !Number.isFinite(cost) || cost < 0 || !Number.isFinite(minStock) || minStock < 0) {
+      toast.error('Informe valores válidos e não negativos');
+      return;
+    }
+    updateProduct(editingId!, { name: editForm.name, category: editForm.category, price, cost, minStock });
     toast.success('Salvo');
     setEditingId(null);
   };
@@ -101,14 +116,14 @@ export default function Produtos() {
                     const isEd = editingId === p.id;
                     const st = productStatus(p);
                     const stClass = st === 'critical' ? 'text-destructive bg-destructive/10' : st === 'low' ? 'text-warning bg-warning/10' : 'text-success bg-success/10';
-                    const margem = p.cost > 0 ? ((p.price - p.cost) / p.price) * 100 : 100;
+                     const margem = p.price > 0 ? ((p.price - p.cost) / p.price) * 100 : null;
                     return (
                       <tr key={p.id} className="border-b border-brand-border/50 hover:bg-brand-bg/50 transition-colors">
                         <td className="py-3">{isEd ? <input className="bg-brand-bg border border-brand-border rounded px-2 py-1 w-32 outline-none" value={editForm.name} onChange={e=>setEditForm({...editForm,name:e.target.value})} /> : <span className="font-medium">{p.name}</span>}</td>
                         <td className="py-3">{isEd ? <input className="bg-brand-bg border border-brand-border rounded px-2 py-1 w-24 outline-none" value={editForm.category} onChange={e=>setEditForm({...editForm,category:e.target.value})} /> : <span className="text-muted-foreground">{p.category}</span>}</td>
                         <td className="py-3">{isEd ? <input type="number" className="bg-brand-bg border border-brand-border rounded px-2 py-1 w-20 outline-none" value={editForm.price} onChange={e=>setEditForm({...editForm,price:e.target.value})} /> : brl(p.price)}</td>
                         <td className="py-3">{isEd ? <input type="number" className="bg-brand-bg border border-brand-border rounded px-2 py-1 w-20 outline-none" value={editForm.cost} onChange={e=>setEditForm({...editForm,cost:e.target.value})} /> : brl(p.cost)}</td>
-                        <td className="py-3 text-muted-foreground">{Math.round(margem)}%</td>
+                         <td className="py-3 text-muted-foreground">{margem === null ? '—' : `${Math.round(margem)}%`}</td>
                         <td className="py-3">
                           <span className={`px-2 py-1 rounded-md text-xs font-bold whitespace-nowrap ${stClass}`}>
                             {p.stock} {isEd ? <> / <input type="number" className="bg-brand-bg border border-brand-border rounded px-1 py-0.5 w-12 outline-none inline text-foreground ml-1" value={editForm.minStock} onChange={e=>setEditForm({...editForm,minStock:e.target.value})} /></> : <span className="opacity-70 font-normal">/ min {p.minStock}</span>}
@@ -146,7 +161,7 @@ export default function Produtos() {
               {products.map(p => {
                 const st = productStatus(p);
                 const stClass = st === 'critical' ? 'text-destructive bg-destructive/10' : st === 'low' ? 'text-warning bg-warning/10' : 'text-success bg-success/10';
-                const margem = p.cost > 0 ? ((p.price - p.cost) / p.price) * 100 : 100;
+                 const margem = p.price > 0 ? ((p.price - p.cost) / p.price) * 100 : null;
                 const stockColor = st === 'critical' ? 'bg-destructive' : st === 'low' ? 'bg-warning' : 'bg-success';
                 const stockRatio = Math.min(p.stock / (Math.max(p.stock, p.minStock) * 1.5 || 5), 1) * 100;
                 return (
@@ -161,7 +176,7 @@ export default function Produtos() {
                     <div className="grid grid-cols-3 gap-2 text-xs mb-3">
                       <div><p className="text-muted-foreground">Venda</p><p className="font-bold">{brl(p.price)}</p></div>
                       <div><p className="text-muted-foreground">Custo</p><p className="font-bold">{brl(p.cost)}</p></div>
-                      <div><p className="text-muted-foreground">Margem</p><p className="font-bold">{Math.round(margem)}%</p></div>
+                       <div><p className="text-muted-foreground">Margem</p><p className="font-bold">{margem === null ? '—' : `${Math.round(margem)}%`}</p></div>
                     </div>
                     <div className="mb-3">
                       <div className="mb-1.5 flex items-center justify-between text-[11px] text-muted-foreground">
