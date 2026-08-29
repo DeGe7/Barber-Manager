@@ -16,10 +16,13 @@ import {
 } from 'react';
 import { toast } from 'sonner';
 import { api } from './api';
+import { formatDateKey } from './date';
+import { useAuth } from '@/auth/auth';
+import { DEFAULT_ROLE_PERMISSIONS } from '@/auth/roles';
 
 // ─── Entity types ──────────────────────────────────────────────────────────────
 
-export type Role = 'gestor' | 'barbeiro' | 'manicure' | 'vendedor';
+export type Role = string;
 export type ClientSource = 'Indicação' | 'Instagram' | 'Google' | 'Facebook' | 'Site' | 'Passou na rua' | 'Outro' | string;
 export type ClientInterest = 'barbearia' | 'salao' | 'protese';
 export type PayMethod = 'debito' | 'credito' | 'pix' | 'dinheiro';
@@ -60,7 +63,7 @@ export interface ProfessionalCommissions {
 export interface Professional {
   id: string;
   name: string;
-  role: 'barbeiro' | 'manicure' | 'vendedor' | 'gestor';
+  role: Role;
   initials: string;
   color: string;
   isActive: boolean;
@@ -156,6 +159,7 @@ export interface RoleItem {
   label: string;
   description: string;
   isActive: boolean;
+  permissions: string[];
 }
 
 export interface ProthesisSale {
@@ -225,6 +229,7 @@ export interface BarbeariaConfig {
   cnpj: string;
   address: string;
   logo?: string;
+  logoPath?: string;
   services: ServiceItem[];
   roles: RoleItem[];
   paymentMethods: { key: PayMethod; label: string; isActive: boolean }[];
@@ -339,10 +344,10 @@ export const DEFAULT_SERVICES: ServiceItem[] = [
 ];
 
 export const DEFAULT_ROLES: RoleItem[] = [
-  { id: 'role-gestor', key: 'gestor', label: 'Gestor / Proprietário', description: 'Acesso completo ao sistema.', isActive: true },
-  { id: 'role-barbeiro', key: 'barbeiro', label: 'Barbeiro', description: 'Agenda e controle diário próprios.', isActive: true },
-  { id: 'role-manicure', key: 'manicure', label: 'Manicure', description: 'Agenda e controle diário próprios.', isActive: true },
-  { id: 'role-vendedor', key: 'vendedor', label: 'Vendedor de Prótese', description: 'Agenda de prótese, vendas e clientes.', isActive: true },
+  { id: 'role-gestor', key: 'gestor', label: 'Gestor / Proprietário', description: 'Acesso completo ao sistema.', isActive: true, permissions: DEFAULT_ROLE_PERMISSIONS.gestor },
+  { id: 'role-barbeiro', key: 'barbeiro', label: 'Barbeiro', description: 'Agenda e controle diário próprios.', isActive: true, permissions: DEFAULT_ROLE_PERMISSIONS.barbeiro },
+  { id: 'role-manicure', key: 'manicure', label: 'Manicure', description: 'Agenda e controle diário próprios.', isActive: true, permissions: DEFAULT_ROLE_PERMISSIONS.manicure },
+  { id: 'role-vendedor', key: 'vendedor', label: 'Vendedor de Prótese', description: 'Agenda de prótese, vendas e clientes.', isActive: true, permissions: DEFAULT_ROLE_PERMISSIONS.vendedor },
 ];
 
 export const DEFAULT_CONFIG: BarbeariaConfig = {
@@ -364,6 +369,7 @@ export const DEFAULT_CONFIG: BarbeariaConfig = {
 };
 
 export function AppStoreProvider({ children }: { children: ReactNode }) {
+  const { user, profile } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
 
   const [professionals, setProfessionals] = useState<Professional[]>([]);
@@ -383,25 +389,41 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const productsRef = useRef(products);
   useEffect(() => { productsRef.current = products; }, [products]);
 
-  // ── Load all data on mount ──
+  // ── Load all data after AuthProvider has resolved the active organization ──
   useEffect(() => {
     let cancelled = false;
+    if (!user || !profile?.organizationId) {
+      setProfessionals([]);
+      setAppointments([]);
+      setBlocks([]);
+      setClients([]);
+      setProducts([]);
+      setProthesisSales([]);
+      setMentoriaSessions([]);
+      setExpenses([]);
+      setIncomes([]);
+      setPlans([]);
+      setSubscribers([]);
+      setConfig(DEFAULT_CONFIG);
+      setIsLoading(false);
+      return () => { cancelled = true; };
+    }
+
     setIsLoading(true);
-    const safe = <T,>(request: Promise<T>, fallback: T) => request.catch(() => fallback);
 
     Promise.all([
-      safe(api.professionals.list(), []),
-      safe(api.appointments.list(), []),
-      safe(api.blocks.list(), []),
-      safe(api.clients.list(), []),
-      safe(api.products.list(), []),
-      safe(api.prothesisSales.list(), []),
-      safe(api.mentoriaSessions.list(), []),
-      safe(api.expenses.list(), []),
-      safe(api.incomes.list(), []),
-      safe(api.plans.list(), []),
-      safe(api.subscribers.list(), []),
-      safe(api.config.get(), DEFAULT_CONFIG),
+      api.professionals.list(),
+      api.appointments.list(),
+      api.blocks.list(),
+      api.clients.list(),
+      api.products.list(),
+      api.prothesisSales.list(),
+      api.mentoriaSessions.list(),
+      api.expenses.list(),
+      api.incomes.list(),
+      api.plans.list(),
+      api.subscribers.list(),
+      api.config.get(),
     ])
       .then(([profs, appts, blks, cls, prods, psales, msessions, exps, incs, pls, subs, cfg]) => {
         if (cancelled) return;
@@ -428,7 +450,14 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           ...DEFAULT_CONFIG,
           ...remoteConfig,
           services: remoteConfig.services?.length ? remoteConfig.services : DEFAULT_SERVICES,
-          roles: remoteConfig.roles?.length ? remoteConfig.roles : DEFAULT_ROLES,
+           roles: remoteConfig.roles?.length
+             ? remoteConfig.roles.map(role => ({
+               ...role,
+               permissions: Array.isArray(role.permissions)
+                 ? role.permissions
+                 : (DEFAULT_ROLE_PERMISSIONS[role.key] || ['dashboard']),
+             }))
+             : DEFAULT_ROLES,
           paymentMethods: remoteConfig.paymentMethods?.length ? remoteConfig.paymentMethods : DEFAULT_CONFIG.paymentMethods,
           clientSources: remoteConfig.clientSources?.length ? remoteConfig.clientSources : DEFAULT_CONFIG.clientSources,
           clientSegments: remoteConfig.clientSegments?.length ? remoteConfig.clientSegments : DEFAULT_CONFIG.clientSegments,
@@ -444,7 +473,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       });
 
     return () => { cancelled = true; };
-  }, []);
+  }, [user, profile?.organizationId]);
 
   // ─── Optimistic mutation helper ─────────────────────────────────────────────
 
@@ -468,7 +497,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     const newP: Professional = { ...p, id: uid() };
     setProfessionals(prev => {
       const next = [...prev, newP];
-      api.professionals.create(newP).catch(err => {
+      api.professionals.create(newP as unknown as Record<string, unknown>).catch(err => {
         console.error('Erro ao salvar profissional', err);
         toast.error('Erro ao salvar profissional');
         setProfessionals(prev2 => prev2.filter(x => x.id !== newP.id));
@@ -508,7 +537,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     const newA: Appointment = { ...a, id: uid() };
     setAppointments(prev => {
       const next = [...prev, newA];
-      api.appointments.create(newA).catch(err => {
+      api.appointments.create(newA as unknown as Record<string, unknown>).catch(err => {
         console.error('Erro ao salvar agendamento', err);
         toast.error('Erro ao salvar agendamento');
         setAppointments(prev2 => prev2.filter(x => x.id !== newA.id));
@@ -546,7 +575,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     const newB: Block = { ...b, id: uid() };
     setBlocks(prev => {
       const next = [...prev, newB];
-      api.blocks.create(newB).catch(err => {
+      api.blocks.create(newB as unknown as Record<string, unknown>).catch(err => {
         console.error('Erro ao criar bloqueio', err);
         toast.error('Erro ao criar bloqueio');
         setBlocks(prev2 => prev2.filter(x => x.id !== newB.id));
@@ -569,10 +598,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 
   // ── Clients ──
   const addClient = useCallback((c: Omit<Client, 'id' | 'createdAt' | 'visits'>) => {
-    const newC: Client = { ...c, id: uid(), createdAt: new Date().toISOString().slice(0, 10), visits: [] };
+    const newC: Client = { ...c, id: uid(), createdAt: formatDateKey(), visits: [] };
     setClients(prev => {
       const next = [...prev, newC];
-      api.clients.create(newC).catch(err => {
+      api.clients.create(newC as unknown as Record<string, unknown>).catch(err => {
         console.error('Erro ao salvar cliente', err);
         toast.error('Erro ao salvar cliente');
         setClients(prev2 => prev2.filter(x => x.id !== newC.id));
@@ -647,7 +676,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     const newP: Product = { ...p, id: uid() };
     setProducts(prev => {
       const next = [...prev, newP];
-      api.products.create(newP).catch(err => {
+      api.products.create(newP as unknown as Record<string, unknown>).catch(err => {
         console.error('Erro ao salvar produto', err);
         toast.error('Erro ao salvar produto');
         setProducts(prev2 => prev2.filter(x => x.id !== newP.id));
@@ -690,7 +719,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     const newStock = prod.stock - qty;
     setProducts(prev => {
       const next = prev.map(p => p.id === id ? { ...p, stock: newStock } : p);
-      api.products.update(id, { stock: newStock }).catch(err => {
+      api.products.adjustStock(id, -qty).catch(err => {
         console.error('Erro ao atualizar estoque', err);
         toast.error('Erro ao atualizar estoque');
         setProducts(prev);
@@ -707,7 +736,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       if (!prod) return prev;
       const newStock = prod.stock + qty;
       const next = prev.map(p => p.id === id ? { ...p, stock: newStock } : p);
-      api.products.update(id, { stock: newStock }).catch(err => {
+      api.products.adjustStock(id, qty).catch(err => {
         console.error('Erro ao repor estoque', err);
         toast.error('Erro ao repor estoque');
         setProducts(prev);
@@ -721,7 +750,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     const newS: ProthesisSale = { ...s, id: uid() };
     setProthesisSales(prev => {
       const next = [...prev, newS];
-      api.prothesisSales.create(newS).catch(err => {
+      api.prothesisSales.create(newS as unknown as Record<string, unknown>).catch(err => {
         console.error('Erro ao salvar venda de prótese', err);
         toast.error('Erro ao salvar venda de prótese');
         setProthesisSales(prev2 => prev2.filter(x => x.id !== newS.id));
@@ -759,7 +788,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     const newM: MentoriaSession = { ...m, id: uid() };
     setMentoriaSessions(prev => {
       const next = [...prev, newM];
-      api.mentoriaSessions.create(newM).catch(err => {
+      api.mentoriaSessions.create(newM as unknown as Record<string, unknown>).catch(err => {
         console.error('Erro ao salvar mentoria', err);
         toast.error('Erro ao salvar mentoria');
         setMentoriaSessions(prev2 => prev2.filter(x => x.id !== newM.id));
@@ -797,7 +826,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     const newE: Expense = { ...e, id: uid() };
     setExpenses(prev => {
       const next = [...prev, newE];
-      api.expenses.create(newE).catch(err => {
+      api.expenses.create(newE as unknown as Record<string, unknown>).catch(err => {
         console.error('Erro ao salvar despesa', err);
         toast.error('Erro ao salvar despesa');
         setExpenses(prev2 => prev2.filter(x => x.id !== newE.id));
@@ -822,7 +851,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     const newI: Income = { ...i, id: uid() };
     setIncomes(prev => {
       const next = [...prev, newI];
-      api.incomes.create(newI).catch(err => {
+      api.incomes.create(newI as unknown as Record<string, unknown>).catch(err => {
         console.error('Erro ao salvar receita', err);
         toast.error('Erro ao salvar receita');
         setIncomes(prev2 => prev2.filter(x => x.id !== newI.id));
@@ -848,7 +877,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     const newP: SubscriptionPlan = { ...p, id: uid() };
     setPlans(prev => {
       const next = [...prev, newP];
-      api.plans.create(newP).catch(err => {
+      api.plans.create(newP as unknown as Record<string, unknown>).catch(err => {
         console.error('Erro ao salvar plano', err);
         toast.error('Erro ao salvar plano');
         setPlans(prev2 => prev2.filter(x => x.id !== newP.id));
@@ -886,7 +915,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     const newS: Subscriber = { ...s, id: uid() };
     setSubscribers(prev => {
       const next = [...prev, newS];
-      api.subscribers.create(newS).catch(err => {
+      api.subscribers.create(newS as unknown as Record<string, unknown>).catch(err => {
         console.error('Erro ao salvar assinante', err);
         toast.error('Erro ao salvar assinante');
         setSubscribers(prev2 => prev2.filter(x => x.id !== newS.id));

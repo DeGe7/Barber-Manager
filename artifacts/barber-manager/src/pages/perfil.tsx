@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { useAuth } from '@/auth/auth';
-import { ROLE_LABELS } from '@/auth/types';
+import { getRoleLabel } from '@/auth/types';
 import { Camera, UserCircle, Upload, Save, X, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -9,6 +9,7 @@ export default function Perfil() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState(session?.avatar || '');
   const [draftAvatar, setDraftAvatar] = useState(session?.avatar || '');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [draftName, setDraftName] = useState(session?.name || '');
   const [isEditingName, setIsEditingName] = useState(false);
@@ -29,20 +30,28 @@ export default function Perfil() {
     reader.onload = () => {
       const avatar = String(reader.result);
       setDraftAvatar(avatar);
+      setSelectedFile(file);
       setIsEditing(true);
     };
     reader.readAsDataURL(file);
   };
 
-  const savePhoto = () => {
-    setPreview(draftAvatar);
-    setAvatar(draftAvatar);
-    setIsEditing(false);
-    toast.success('Foto de perfil atualizada.');
+  const savePhoto = async () => {
+    if (!selectedFile) return;
+    try {
+      await setAvatar(selectedFile);
+      setPreview(draftAvatar);
+      setIsEditing(false);
+      setSelectedFile(null);
+      toast.success('Foto de perfil atualizada.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Não foi possível salvar a foto.');
+    }
   };
 
   const cancelPhoto = () => {
     setDraftAvatar(preview);
+    setSelectedFile(null);
     setIsEditing(false);
     if (inputRef.current) inputRef.current.value = '';
   };
@@ -115,7 +124,7 @@ export default function Perfil() {
               </div>
             )}
             <p className="text-sm text-muted-foreground mt-1">{session.email}</p>
-            <span className="inline-block mt-3 px-3 py-1 rounded-full bg-brand-gold/10 text-brand-gold text-xs font-semibold">{session.role ? ROLE_LABELS[session.role] : 'Perfil em configuração'}</span>
+            <span className="inline-block mt-3 px-3 py-1 rounded-full bg-brand-gold/10 text-brand-gold text-xs font-semibold">{session.role ? getRoleLabel(session.role) : 'Perfil em configuração'}</span>
             <button type="button" onClick={() => inputRef.current?.click()} className="mt-5 flex items-center gap-2 mx-auto sm:mx-0 px-4 py-2 rounded-lg border border-brand-border text-sm font-semibold hover:border-brand-gold hover:text-brand-gold transition-colors">
               <Upload className="w-4 h-4" /> Alterar foto
             </button>

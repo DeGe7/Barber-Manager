@@ -6,12 +6,13 @@ import { toast } from 'sonner';
 
 export default function Cadastro() {
   const [, setLocation] = useLocation();
-  const { signUp } = useAuth();
+  const { signUp, acceptInvitation } = useAuth();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
   const [loading, setLoading] = useState(false);
+  const inviteToken = new URLSearchParams(window.location.search).get('convite') || '';
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -36,8 +37,9 @@ export default function Cadastro() {
       const { needsEmailConfirmation } = await signUp(name, email, password);
       if (needsEmailConfirmation) {
         toast.success('Conta criada. Confira seu e-mail para confirmar o cadastro.');
-        setLocation('/login');
+        setLocation(inviteToken ? `/login?convite=${encodeURIComponent(inviteToken)}` : '/login');
       } else {
+        if (inviteToken) await acceptInvitation(inviteToken);
         toast.success('Conta criada com sucesso!');
         setLocation('/dashboard');
       }
@@ -58,6 +60,11 @@ export default function Cadastro() {
           <p className="text-sm text-muted-foreground mt-2">Comece a gerenciar seu estabelecimento</p>
         </div>
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {inviteToken && (
+            <div className="rounded-lg border border-brand-gold/30 bg-brand-gold/10 p-3 text-sm text-brand-gold">
+              Você está se cadastrando a partir de um convite para uma equipe existente.
+            </div>
+          )}
           <div className="space-y-2">
             <label htmlFor="signup-name" className="text-sm font-medium text-foreground">Nome e sobrenome</label>
             <input id="signup-name" type="text" value={name} onChange={event => setName(event.target.value)} autoComplete="name" required className="w-full bg-brand-bg border border-brand-border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-gold text-foreground" placeholder="Seu nome completo" />
@@ -75,7 +82,7 @@ export default function Cadastro() {
             <input id="signup-confirmation" type="password" value={confirmation} onChange={event => setConfirmation(event.target.value)} autoComplete="new-password" required className="w-full bg-brand-bg border border-brand-border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-gold text-foreground" placeholder="Repita sua senha" />
           </div>
           <button type="submit" disabled={loading} className="w-full bg-brand-gold text-brand-bg font-bold py-3 px-4 rounded-lg hover:bg-brand-gold/90 transition-all disabled:opacity-50">{loading ? 'Cadastrando...' : 'Cadastrar'}</button>
-          <p className="text-center text-sm text-muted-foreground pt-2">Já tem uma conta? <Link href="/login" className="text-brand-gold hover:underline">Entrar</Link></p>
+           <p className="text-center text-sm text-muted-foreground pt-2">Já tem uma conta? <Link href={inviteToken ? `/login?convite=${encodeURIComponent(inviteToken)}` : '/login'} className="text-brand-gold hover:underline">Entrar</Link></p>
         </form>
       </div>
     </div>

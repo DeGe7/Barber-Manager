@@ -12,6 +12,7 @@ import {
   AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger 
 } from '@/components/ui/alert-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { formatDateKey, parseDateKey } from '@/data/date';
 
 const TABS = ['Todos', 'Aniversariantes', 'Inativos', 'Origem / CAC'] as const;
 
@@ -22,13 +23,13 @@ export default function Clientes() {
   const [search, setSearch] = useState('');
   
   const today = new Date();
-  const currentMonth = today.toISOString().slice(5, 7);
+  const currentMonth = formatDateKey(today).slice(5, 7);
 
   const bdaysCount = clients.filter(c => c.birthday?.slice(5, 7) === currentMonth).length;
   const inativosCount = clients.filter(c => {
     if (c.visits.length === 0) return false;
     const lastVisit = [...c.visits].sort((a,b) => b.date.localeCompare(a.date))[0].date;
-    const daysSince = Math.floor((today.getTime() - new Date(lastVisit).getTime()) / (1000 * 60 * 60 * 24));
+    const daysSince = Math.floor((today.getTime() - parseDateKey(lastVisit).getTime()) / (1000 * 60 * 60 * 24));
     return daysSince > 45;
   }).length;
 
@@ -41,7 +42,7 @@ export default function Clientes() {
   const aniversariantes = clients.filter(c => c.birthday?.slice(5, 7) === currentMonth);
   const inativos = clients.map(c => {
     const lastV = c.visits.length > 0 ? [...c.visits].sort((a,b) => b.date.localeCompare(a.date))[0].date : null;
-    const daysSince = lastV ? Math.floor((today.getTime() - new Date(lastV).getTime()) / (1000 * 60 * 60 * 24)) : 0;
+    const daysSince = lastV ? Math.floor((today.getTime() - parseDateKey(lastV).getTime()) / (1000 * 60 * 60 * 24)) : 0;
     return { ...c, lastV, daysSince };
   }).filter(c => c.daysSince > 45);
 
@@ -77,7 +78,7 @@ export default function Clientes() {
   };
 
   const [selectedClient, setSelectedClient] = useState<any>(null);
-  const [visitForm, setVisitForm] = useState({ date: today.toISOString().slice(0, 10), type: 'servico' as 'servico'|'produto', description: '', professional: '', amount: 0 });
+  const [visitForm, setVisitForm] = useState({ date: formatDateKey(today), type: 'servico' as 'servico'|'produto', description: '', professional: '', amount: 0 });
 
   useEffect(() => {
     if (!selectedClient) return;
@@ -91,7 +92,7 @@ export default function Clientes() {
     if (!selectedClient) return;
     addVisit(selectedClient.id, visitForm);
     toast.success('Visita registrada');
-    setVisitForm({ date: today.toISOString().slice(0, 10), type: 'servico', description: '', professional: '', amount: 0 });
+    setVisitForm({ date: formatDateKey(today), type: 'servico', description: '', professional: '', amount: 0 });
   };
 
   const sendWpp = (phone: string, text: string = '') => {

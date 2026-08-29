@@ -4,6 +4,7 @@ import { useAuth } from '@/auth/auth';
 import { toast } from 'sonner';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Plus, Trash2, ArrowUpRight, ArrowDownRight, AlertTriangle } from 'lucide-react';
+import { formatDateKey } from '@/data/date';
 
 export default function Controle() {
   const { 
@@ -12,7 +13,7 @@ export default function Controle() {
   } = useStore();
   const { profile: session } = useAuth();
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = formatDateKey();
   const activeProfs = professionals.filter(p => p.isActive);
 
   // Form states
@@ -32,7 +33,8 @@ export default function Controle() {
   const [expAmount, setExpAmount] = useState('');
   const [expCategory, setExpCategory] = useState<ExpenseCategory>('Outros');
 
-  const resolvedProfId = session?.role === 'barbeiro' || session?.role === 'manicure' ? session.professionalId : profId;
+  const ownProfile = Boolean(session?.professionalId && session.role !== 'gestor' && session.role !== 'dev-admin');
+  const resolvedProfId = ownProfile ? session?.professionalId : profId;
   const selectedProf = professionals.find(p => p.id === resolvedProfId);
   const serviceItem = config.services.find(s => s.name === service && s.isActive) ?? config.services.find(s => s.isActive);
   const serviceKey = (serviceItem?.commissionKey ?? 'barbearia') as keyof ProfessionalCommissions;
@@ -70,6 +72,18 @@ export default function Controle() {
       aggregated[p.productId] = (aggregated[p.productId] || 0) + p.quantity;
     }
 
+    const total = valNum + tipNum + totalProducts;
+    const normalizedPayments = paymentSplits.length > 0
+      ? paymentSplits
+      : [{ method: payMethod, amount: total }];
+    const hasInvalidPayment = normalizedPayments.some(payment =>
+      !Number.isFinite(Number(payment.amount)) || Number(payment.amount) < 0
+    );
+    if (hasInvalidPayment || Math.abs(normalizedPayments.reduce((sum, payment) => sum + Number(payment.amount), 0) - total) > 0.01) {
+      toast.error(`As formas de pagamento devem totalizar ${brl(total)}`);
+      return;
+    }
+
     // Pre-validate ALL quantities before mutating any stock
     for (const [productId, qty] of Object.entries(aggregated)) {
       const prod = products.find(pr => pr.id === productId);
@@ -82,15 +96,6 @@ export default function Controle() {
     // All valid — apply stock deductions
     for (const [productId, qty] of Object.entries(aggregated)) {
       sellProduct(productId, qty);
-    }
-
-    const total = valNum + tipNum + totalProducts;
-    const normalizedPayments = paymentSplits.length > 0
-      ? paymentSplits
-      : [{ method: payMethod, amount: total }];
-    if (Math.abs(normalizedPayments.reduce((sum, payment) => sum + Number(payment.amount), 0) - total) > 0.01) {
-      toast.error(`As formas de pagamento devem totalizar ${brl(total)}`);
-      return;
     }
 
     addAppointment({
@@ -173,7 +178,7 @@ export default function Controle() {
               </div>
               <div>
                 <label className="text-xs font-semibold text-foreground uppercase tracking-wide">Profissional *</label>
-                <select required disabled={session?.role === 'barbeiro' || session?.role === 'manicure'} value={resolvedProfId || ''} onChange={e => setProfId(e.target.value)} className="w-full bg-brand-bg border border-brand-border rounded-lg px-4 py-2 mt-1 text-sm text-foreground focus:ring-1 focus:ring-brand-gold outline-none disabled:opacity-60">
+                <select required disabled={ownProfile} value={resolvedProfId || ''} onChange={e => setProfId(e.target.value)} className="w-full bg-brand-bg border border-brand-border rounded-lg px-4 py-2 mt-1 text-sm text-foreground focus:ring-1 focus:ring-brand-gold outline-none disabled:opacity-60">
                   <option value="">Selecione...</option>
                   {activeProfs.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>

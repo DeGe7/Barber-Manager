@@ -1,19 +1,25 @@
 import { useState, useEffect, useRef } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useStore, ServiceItem, RoleItem, PayMethod, PAY_LABELS } from '@/data/store';
-import { Settings, Building, Users, Shield, Link as LinkIcon, Plus, Trash2, Upload, Image as ImageIcon } from 'lucide-react';
+import { Settings, Building, Users, Shield, Link as LinkIcon, Plus, Trash2, Upload, Image as ImageIcon, LockKeyhole } from 'lucide-react';
 import { toast } from 'sonner';
-import { ROLE_ROUTES } from '@/auth/roles';
+import { PERMISSION_CATALOG } from '@/auth/roles';
 import { Link } from 'wouter';
 import { useLocation } from 'wouter';
+import { useAuth } from '@/auth/auth';
+import { supabase } from '@/services/supabaseClient';
 
 export default function Configuracoes() {
   const [location] = useLocation();
   const section = location.startsWith('/configuracoes/') ? location.split('/')[2] : '';
   const showSection = (name: string) => !section || section === name;
   const { config, updateConfig, professionals, updateProfessional, products, updateProduct, addProduct, isLoading } = useStore();
+  const { profile } = useAuth();
   const [formData, setFormData] = useState({ name: '', address: '', cnpj: '', logo: '' });
+  const [logoPath, setLogoPath] = useState('');
   const logoInputRef = useRef<HTMLInputElement>(null);
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   const [expandedProfId, setExpandedProfId] = useState<string|null>(null);
   const [serviceDrafts, setServiceDrafts] = useState<ServiceItem[]>([]);
   const [roleDrafts, setRoleDrafts] = useState<RoleItem[]>([]);
@@ -28,6 +34,7 @@ export default function Configuracoes() {
       cnpj: config.cnpj || '',
       logo: config.logo || ''
     });
+    setLogoPath(config.logoPath || '');
     setServiceDrafts(config.services);
     setRoleDrafts(config.roles);
   }, [config]);
@@ -46,13 +53,37 @@ export default function Configuracoes() {
   };
   const addRole = () => {
     if (!newRole.label.trim()) { toast.error('Informe o nome do cargo'); return; }
-    setRoleDrafts(items => [...items, { id: `role-${crypto.randomUUID()}`, key: newRole.label.toLowerCase().replace(/\s+/g, '-'), label: newRole.label.trim(), description: newRole.description.trim(), isActive: true }]);
+    const baseKey = newRole.label.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'cargo';
+    setRoleDrafts(items => {
+      const usedKeys = new Set(items.map(item => item.key));
+      let key = baseKey;
+      let suffix = 2;
+      while (usedKeys.has(key)) key = `${baseKey}-${suffix++}`;
+      return [...items, {
+        id: `role-${crypto.randomUUID()}`,
+        key,
+        label: newRole.label.trim(),
+        description: newRole.description.trim(),
+        isActive: true,
+        permissions: ['dashboard'],
+      }];
+    });
     setNewRole({ label: '', description: '' });
   };
   const saveRoles = () => { updateConfig({ roles: roleDrafts }); toast.success('Cargos salvos.'); };
   const removeRole = (role: RoleItem) => {
     if (!window.confirm(`Excluir o cargo "${role.label}"?`)) return;
     setRoleDrafts(items => items.filter(item => item.id !== role.id));
+  };
+  const toggleRolePermission = (roleKey: string, permission: string, enabled: boolean) => {
+    setRoleDrafts(items => items.map(role => role.key !== roleKey || role.key === 'gestor' || role.key === 'dev-admin'
+      ? role
+      : {
+        ...role,
+        permissions: enabled
+          ? [...new Set([...role.permissions, permission])]
+          : role.permissions.filter(item => item !== permission),
+      }));
   };
   const addPayment = () => {
     const key = newPayment.trim().toLowerCase().replace(/\s+/g, '-') as PayMethod;
@@ -66,10 +97,39 @@ export default function Configuracoes() {
     updateConfig({ paymentMethods: config.paymentMethods.filter(item => item.key !== key) });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    updateConfig(formData);
-    toast.success('Configurações salvas com sucesso.');
+    setIsSaving(true);
+    try {
+      let logo = formData.logo;
+      let nextLogoPath = logoPath;
+      if (logoFile) {
+        if (!supabase || !profile?.organizationId) throw new Error('Não foi possível identificar o estabelecimento.');
+        const extension = logoFile.name.split('.').pop()?.toLowerCase() || 'jpg';
+        const path = `${profile.organizationId}/${crypto.randomUUID()}.${extension}`;
+        const { error: uploadError } = await supabase.storage.from('logos').upload(path, logoFile, {
+          cacheControl: '3600',
+          upsert: true,
+          contentType: logoFile.type,
+        });
+        if (uploadError) throw new Error(`Não foi possível enviar a logo: ${uploadError.message}`);
+        const { data: logoData, error: logoUrlError } = await supabase.storage.from('logos').createSignedUrl(path, 3600);
+        if (logoUrlError || !logoData?.signedUrl) {
+          throw new Error(`Não foi possível preparar a logo: ${logoUrlError?.message || 'URL assinada indisponível'}`);
+        }
+        logo = logoData.signedUrl;
+        nextLogoPath = path;
+      }
+      updateConfig({ ...formData, logo, logoPath: nextLogoPath });
+      setFormData(current => ({ ...current, logo }));
+      setLogoPath(nextLogoPath);
+      setLogoFile(null);
+      toast.success('Configurações salvas com sucesso.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Não foi possível salvar as configurações.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleLogoChange = (file?: File) => {
@@ -82,6 +142,7 @@ export default function Configuracoes() {
       toast.error('A imagem deve ter no máximo 2 MB.');
       return;
     }
+    setLogoFile(file);
     const reader = new FileReader();
     reader.onload = () => setFormData(current => ({ ...current, logo: String(reader.result) }));
     reader.readAsDataURL(file);
@@ -311,39 +372,52 @@ export default function Configuracoes() {
           <Shield className="w-5 h-5 text-brand-gold" />
           <h3 className="text-lg font-bold text-foreground">Papéis e Acesso</h3>
         </div>
-        <p className="text-sm text-muted-foreground mb-4">Os papéis são definidos no perfil de cada usuário durante o login. Abaixo a tabela de acesso por papel:</p>
-        
-        {/* Desktop table */}
-        <div className="hidden md:block overflow-x-auto">
-          <table className="w-full text-sm text-left">
-            <thead>
-              <tr className="border-b border-brand-border text-muted-foreground">
-                <th className="pb-3 capitalize">Papel</th>
-                <th className="pb-3">Telas Permitidas</th>
-              </tr>
-            </thead>
-            <tbody>
-              {Object.entries(ROLE_ROUTES).map(([role, routes]) => (
-                <tr key={role} className="border-b border-brand-border/50 hover:bg-brand-bg/50 transition-colors">
-                  <td className="py-3 font-bold capitalize text-brand-gold">{role}</td>
-                  <td className="py-3 text-muted-foreground text-xs leading-relaxed">
-                    {routes.map(r => r === '/' ? '/dashboard' : r).join(', ')}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <p className="text-sm text-muted-foreground">Marque o que cada cargo pode acessar. O Gestor / Proprietário mantém acesso total para não perder o controle da empresa.</p>
+        <div className="space-y-4">
+          {roleDrafts.map(role => {
+            const isProtectedRole = role.key === 'gestor' || role.key === 'dev-admin';
+            return (
+              <section key={role.id} className="rounded-xl border border-brand-border bg-brand-bg p-4 md:p-5">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-bold text-foreground">{role.label}</h4>
+                      {isProtectedRole && <span className="inline-flex items-center gap-1 rounded-full border border-brand-gold/30 bg-brand-gold/10 px-2 py-0.5 text-[10px] font-semibold text-brand-gold"><LockKeyhole className="h-3 w-3" /> Acesso total</span>}
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">{role.description || 'Defina os módulos que este cargo pode acessar.'}</p>
+                  </div>
+                  {!isProtectedRole && (
+                    <button type="button" onClick={() => setRoleDrafts(items => items.map(item => item.id === role.id ? { ...item, isActive: !item.isActive } : item))} className={`self-start rounded-lg px-3 py-1.5 text-xs font-semibold ${role.isActive ? 'bg-success/10 text-success' : 'bg-muted text-muted-foreground'}`}>
+                      {role.isActive ? 'Cargo ativo' : 'Cargo inativo'}
+                    </button>
+                  )}
+                </div>
+                <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {PERMISSION_CATALOG.map(permission => {
+                    const checked = isProtectedRole || role.permissions.includes(permission.key);
+                    return (
+                      <label key={permission.key} className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors ${checked ? 'border-brand-gold/40 bg-brand-gold/5' : 'border-brand-border bg-brand-surface hover:border-brand-gold/30'} ${isProtectedRole ? 'cursor-not-allowed opacity-80' : ''}`}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={isProtectedRole}
+                          onChange={event => toggleRolePermission(role.key, permission.key, event.target.checked)}
+                          className="mt-0.5 h-4 w-4 accent-brand-gold"
+                        />
+                        <span className="min-w-0">
+                          <span className="block text-sm font-semibold text-foreground">{permission.label}</span>
+                          <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">{permission.description}</span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </section>
+            );
+          })}
         </div>
-        {/* Mobile cards */}
-        <div className="md:hidden space-y-3">
-          {Object.entries(ROLE_ROUTES).map(([role, routes]) => (
-            <div key={role} className="p-4 bg-brand-bg border border-brand-border rounded-xl">
-              <p className="font-bold capitalize text-brand-gold mb-1">{role}</p>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                {routes.map(r => r === '/' ? '/dashboard' : r).join(', ')}
-              </p>
-            </div>
-          ))}
+        <div className="flex justify-end">
+          <button type="button" onClick={saveRoles} className="rounded-lg bg-brand-gold px-5 py-2.5 text-sm font-bold text-brand-bg hover:bg-brand-gold/90">Salvar permissões</button>
         </div>
       </div>}
 

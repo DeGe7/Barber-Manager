@@ -1,54 +1,81 @@
 import type { Role } from './types';
 
-// Routes each role can access
-export const ROLE_ROUTES: Record<Role, string[]> = {
-  gestor: [
-    '/',
-    '/dashboard',
-    '/agenda',
-    '/clientes',
-    '/controle',
-    '/financeiro',
-    '/profissionais',
-    '/produtos',
-    '/planos',
-    '/vendas',
-    '/comunicacao',
-    '/perfil',
-    '/configuracoes',
-  ],
-  'dev-admin': [
-    '/',
-    '/dashboard',
-    '/agenda',
-    '/clientes',
-    '/controle',
-    '/financeiro',
-    '/profissionais',
-    '/produtos',
-    '/planos',
-    '/vendas',
-    '/comunicacao',
-    '/perfil',
-    '/configuracoes',
-  ],
-  barbeiro: ['/', '/dashboard', '/agenda', '/controle', '/perfil'],
-  manicure: ['/', '/dashboard', '/agenda', '/controle', '/perfil'],
-  vendedor: ['/', '/dashboard', '/agenda', '/clientes', '/vendas', '/perfil'],
-};
-
-export function canAccess(role: Role | null, path: string): boolean {
-  if (!role) return false;
-  const allowed = ROLE_ROUTES[role];
-  // Exact match or prefix match for nested routes
-  return allowed.some((r) => path === r || (r !== '/' && path.startsWith(r)));
+export interface PermissionDefinition {
+  key: string;
+  label: string;
+  description: string;
 }
 
-// Nav items per role (in display order)
+export const PERMISSION_CATALOG: PermissionDefinition[] = [
+  { key: 'dashboard', label: 'Dashboard', description: 'Indicadores e resumo do estabelecimento.' },
+  { key: 'agenda', label: 'Agenda', description: 'Visualizar e gerenciar horários.' },
+  { key: 'controle', label: 'Controle Diário', description: 'Registrar atendimentos e recebimentos.' },
+  { key: 'clientes', label: 'Clientes', description: 'Consultar e gerenciar clientes.' },
+  { key: 'profissionais', label: 'Equipe', description: 'Gerenciar profissionais e convites.' },
+  { key: 'vendas', label: 'Vendas & Mentoria', description: 'Gerenciar vendas de prótese e mentorias.' },
+  { key: 'produtos', label: 'Produtos & Estoque', description: 'Gerenciar produtos e estoque.' },
+  { key: 'planos', label: 'Planos & Mensalidades', description: 'Gerenciar planos e assinantes.' },
+  { key: 'financeiro', label: 'Financeiro', description: 'Consultar receitas, despesas e relatórios.' },
+  { key: 'comunicacao', label: 'Disparos de Mensagens', description: 'Acessar campanhas e mensagens.' },
+  { key: 'configuracoes', label: 'Configurações', description: 'Consultar configurações do estabelecimento.' },
+];
+
+export const ALL_PERMISSION_KEYS = PERMISSION_CATALOG.map(permission => permission.key);
+
+export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
+  gestor: [...ALL_PERMISSION_KEYS],
+  'dev-admin': [...ALL_PERMISSION_KEYS],
+  barbeiro: ['dashboard', 'agenda', 'controle'],
+  manicure: ['dashboard', 'agenda', 'controle'],
+  vendedor: ['dashboard', 'agenda', 'clientes', 'vendas'],
+};
+
+const ROUTE_PERMISSIONS: Record<string, string> = {
+  '/': 'dashboard',
+  '/dashboard': 'dashboard',
+  '/agenda': 'agenda',
+  '/controle': 'controle',
+  '/clientes': 'clientes',
+  '/profissionais': 'profissionais',
+  '/vendas': 'vendas',
+  '/produtos': 'produtos',
+  '/planos': 'planos',
+  '/financeiro': 'financeiro',
+  '/comunicacao': 'comunicacao',
+  '/configuracoes': 'configuracoes',
+};
+
+export const ROLE_ROUTES: Record<string, string[]> = Object.fromEntries(
+  Object.entries(DEFAULT_ROLE_PERMISSIONS).map(([role, permissions]) => [
+    role,
+    [
+      ...permissions
+        .map(permission => Object.entries(ROUTE_PERMISSIONS).find(([, key]) => key === permission)?.[0])
+        .filter((path): path is string => Boolean(path)),
+      '/perfil',
+    ],
+  ]),
+);
+
+export function getPermissionsForRole(role: Role | null, permissions?: string[]): string[] {
+  if (!role) return [];
+  if (role === 'gestor' || role === 'dev-admin') return ALL_PERMISSION_KEYS;
+  if (permissions) return [...new Set(permissions)];
+  return DEFAULT_ROLE_PERMISSIONS[role] || ['dashboard'];
+}
+
+export function canAccess(role: Role | null, path: string, permissions?: string[]): boolean {
+  if (!role) return false;
+  if (path === '/perfil') return true;
+  const requiredPermission = Object.entries(ROUTE_PERMISSIONS)
+    .find(([route]) => path === route || (route !== '/' && path.startsWith(route)))?.[1];
+  return Boolean(requiredPermission && getPermissionsForRole(role, permissions).includes(requiredPermission));
+}
+
 export interface NavItem {
   path: string;
   label: string;
-  icon: string; // lucide icon name
+  icon: string;
 }
 
 export const ALL_NAV_ITEMS: NavItem[] = [
@@ -65,8 +92,6 @@ export const ALL_NAV_ITEMS: NavItem[] = [
   { path: '/configuracoes', label: 'Configurações', icon: 'Settings' },
 ];
 
-export function getNavItemsForRole(role: Role | null): NavItem[] {
-  if (!role) return [];
-  const allowed = ROLE_ROUTES[role];
-  return ALL_NAV_ITEMS.filter((item) => allowed.includes(item.path));
+export function getNavItemsForRole(role: Role | null, permissions?: string[]): NavItem[] {
+  return ALL_NAV_ITEMS.filter(item => canAccess(role, item.path, permissions));
 }

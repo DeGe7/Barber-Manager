@@ -13,15 +13,16 @@ import {
   AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger 
 } from '@/components/ui/alert-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { formatDateKey } from '@/data/date';
 
 // Helper for dates
-const dToStr = (d: Date) => d.toISOString().slice(0, 10);
+const dToStr = (d: Date) => formatDateKey(d);
 const parseD = (s: string) => new Date(s + 'T12:00:00');
 
 export default function Agenda() {
   const { appointments, blocks, professionals, config, addAppointment, updateAppointment, removeAppointment, addBlock, removeBlock, isLoading } = useStore();
   const { profile: session } = useAuth();
-  const ownProfile = session?.role === 'barbeiro' || session?.role === 'manicure';
+  const ownProfile = Boolean(session?.professionalId && session.role !== 'gestor' && session.role !== 'dev-admin');
   const ownProfessionalId = ownProfile ? session?.professionalId : undefined;
 
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -134,11 +135,12 @@ export default function Agenda() {
 
   const handleEditAppt = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editAppt || !editForm.client || !editForm.profId) { toast.error('Preencha os campos obrigatórios'); return; }
-    const conflict = checkConflicts(editAppt.date, editForm.time, editForm.profId, editForm.service, editAppt.id);
+    const resolvedEditProfId = ownProfessionalId || editForm.profId;
+    if (!editAppt || !editForm.client || !resolvedEditProfId) { toast.error('Preencha os campos obrigatórios'); return; }
+    const conflict = checkConflicts(editAppt.date, editForm.time, resolvedEditProfId, editForm.service, editAppt.id);
     if (conflict) { toast.error(conflict); return; }
     updateAppointment(editAppt.id, {
-      client: editForm.client, clientPhone: editForm.phone, professionalId: editForm.profId,
+      client: editForm.client, clientPhone: editForm.phone, professionalId: resolvedEditProfId,
       service: editForm.service, time: editForm.time,
       value: editForm.value,
       duration: svcDur(editForm.service),
@@ -152,10 +154,11 @@ export default function Agenda() {
 
   const handleAddBlock = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!blockForm.profId) { toast.error('Selecione o profissional'); return; }
+    const resolvedBlockProfId = ownProfessionalId || blockForm.profId;
+    if (!resolvedBlockProfId) { toast.error('Selecione o profissional'); return; }
     addBlock({
       date: selectedDate,
-      professionalId: blockForm.profId,
+      professionalId: resolvedBlockProfId,
       reason: blockForm.reason,
       slots: blockForm.fullDay ? [] : blockForm.slots,
       notes: blockForm.notes
@@ -227,7 +230,7 @@ export default function Agenda() {
               <form onSubmit={handleAddBlock} className="space-y-4 pt-4">
                 <div>
                   <label className="text-xs font-semibold text-muted-foreground uppercase">Profissional</label>
-                  <select required value={blockForm.profId} onChange={e => setBlockForm(f => ({ ...f, profId: e.target.value }))} className="w-full bg-brand-bg border border-brand-border rounded-lg px-3 py-2 mt-1 text-sm outline-none">
+                  <select required disabled={ownProfile} value={ownProfessionalId || blockForm.profId} onChange={e => setBlockForm(f => ({ ...f, profId: e.target.value }))} className="w-full bg-brand-bg border border-brand-border rounded-lg px-3 py-2 mt-1 text-sm outline-none disabled:opacity-60">
                     <option value="">Selecione...</option>
                     {activeProfs.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                   </select>
@@ -599,7 +602,7 @@ export default function Agenda() {
               </div>
               <div>
                 <label className="text-xs font-semibold text-muted-foreground uppercase">Profissional</label>
-                <select required value={editForm.profId} onChange={e => setEditForm(f => ({ ...f, profId: e.target.value }))} className="w-full bg-brand-bg border border-brand-border rounded-lg px-3 py-2 mt-1 text-sm outline-none">
+                <select required disabled={ownProfile} value={ownProfessionalId || editForm.profId} onChange={e => setEditForm(f => ({ ...f, profId: e.target.value }))} className="w-full bg-brand-bg border border-brand-border rounded-lg px-3 py-2 mt-1 text-sm outline-none disabled:opacity-60">
                   <option value="">Selecione...</option>
                   {activeProfs.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>

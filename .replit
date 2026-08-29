@@ -21,7 +21,9 @@ timeoutMs = 90000
 
 [nix]
 channel = "stable-25_05"
+packages = ["glib", "nss", "nspr", "atk", "at-spi2-atk", "cups", "dbus", "pango", "cairo", "xorg.libXcomposite", "xorg.libXdamage", "xorg.libXfixes", "xorg.libXrandr", "xorg.libxcb", "mesa", "libdrm", "expat", "gtk3", "alsa-lib", "libxkbcommon", "xorg.libX11", "xorg.libXext"]
 
 [userenv]
 
 [userenv.shared]
+VITE_SUPABASE_URL = "https://sadpftgyclmmpjlemnnz.supabase.co"

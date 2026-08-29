@@ -23,6 +23,7 @@ import { Layout } from '@/components/Layout';
 import Login from '@/pages/login';
 import Cadastro from '@/pages/cadastro';
 import Onboarding from '@/pages/onboarding';
+import Convite from '@/pages/convite';
 import Dashboard from '@/pages/dashboard';
 import Controle from '@/pages/controle';
 import Agenda from '@/pages/agenda';
@@ -69,11 +70,14 @@ function MainRouter() {
   }
 
   // Auth routing logic
-  if (!session && location !== '/login' && location !== '/cadastro') {
+  const isInviteRoute = location.startsWith('/convite/');
+  const hasInviteContext = Boolean(new URLSearchParams(window.location.search).get('convite'));
+
+  if (!session && location !== '/login' && location !== '/cadastro' && !isInviteRoute) {
     return <Redirect to="/login" />;
   }
 
-  if (session && profile && profile.role === null && location !== '/onboarding') {
+  if (session && profile && profile.role === null && location !== '/onboarding' && !isInviteRoute && !(hasInviteContext && (location === '/login' || location === '/cadastro'))) {
     return <Redirect to="/onboarding" />;
   }
 
@@ -95,6 +99,14 @@ function MainRouter() {
     return (
       <Switch>
         <Route path="/onboarding" component={Onboarding} />
+      </Switch>
+    );
+  }
+
+  if (isInviteRoute) {
+    return (
+      <Switch>
+        <Route path="/convite/:token" component={Convite} />
       </Switch>
     );
   }
