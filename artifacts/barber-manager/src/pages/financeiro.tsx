@@ -9,6 +9,7 @@ import {
 import { ArrowUpRight, ArrowDownRight, Trash2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { formatDateKey, formatMonthKey, parseDateKey } from '@/data/date';
 
 const TABS = ['Visão Geral', 'Por Profissional', 'Serviços', 'Produtos'] as const;
 type Period = 'anual' | 'semestral' | 'trimestral' | 'mensal' | 'semanal';
@@ -17,12 +18,12 @@ export default function Financeiro() {
   const { expenses, incomes, appointments, professionals, products, prothesisSales, mentoriaSessions, addExpense, removeExpense, addIncome, removeIncome, isLoading } = useStore();
 
   const [activeTab, setActiveTab] = useState<typeof TABS[number]>('Visão Geral');
-  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [selectedMonth, setSelectedMonth] = useState(formatMonthKey());
   const [period, setPeriod] = useState<Period>('mensal');
   
   const year = parseInt(selectedMonth.split('-')[0]);
   const month = parseInt(selectedMonth.split('-')[1]);
-  const anchorDate = new Date(`${selectedMonth}-01T12:00:00`);
+  const anchorDate = parseDateKey(`${selectedMonth}-01`);
   const periodStart = new Date(anchorDate);
   if (period === 'anual') periodStart.setMonth(0);
   if (period === 'semestral') periodStart.setMonth(anchorDate.getMonth() < 6 ? 0 : 6);
@@ -135,7 +136,7 @@ export default function Financeiro() {
   });
 
   const [expOpen, setExpOpen] = useState(false);
-  const [expForm, setExpForm] = useState({ date: new Date().toISOString().slice(0, 10), desc: '', amount: '', cat: 'Outros' as ExpenseCategory });
+  const [expForm, setExpForm] = useState({ date: formatDateKey(), desc: '', amount: '', cat: 'Outros' as ExpenseCategory });
   const handleExp = (e: React.FormEvent) => {
     e.preventDefault();
     addExpense({ date: expForm.date, description: expForm.desc, amount: Number(expForm.amount), category: expForm.cat });
@@ -143,7 +144,7 @@ export default function Financeiro() {
   };
 
   const [incOpen, setIncOpen] = useState(false);
-  const [incForm, setIncForm] = useState({ date: new Date().toISOString().slice(0, 10), desc: '', amount: '' });
+  const [incForm, setIncForm] = useState({ date: formatDateKey(), desc: '', amount: '' });
   const handleInc = (e: React.FormEvent) => {
     e.preventDefault();
     addIncome({ date: incForm.date, description: incForm.desc, amount: Number(incForm.amount) });
