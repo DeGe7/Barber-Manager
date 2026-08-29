@@ -5,13 +5,16 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Trash2, AlertTriangle, MessageSquare, Edit2 } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, AlertDialogFooter, AlertDialogDescription } from '@/components/ui/alert-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { formatDateKey, parseDateKey } from '@/data/date';
 
 export default function Vendas() {
-  const { professionals, prothesisSales, mentoriaSessions, addProthesisSale, updateProthesisSale, removeProthesisSale, addMentoriaSession, updateMentoriaSession, removeMentoriaSession, isLoading } = useStore();
+  const { professionals, prothesisSales, mentoriaSessions, config, addProthesisSale, updateProthesisSale, removeProthesisSale, addMentoriaSession, updateMentoriaSession, removeMentoriaSession, isLoading } = useStore();
 
   const [activeTab, setActiveTab] = useState<'Prótese' | 'Mentoria'>('Prótese');
-  const today = new Date().toISOString().slice(0, 10);
-  const sellers = professionals.filter(p => p.role === 'vendedor' && p.isActive);
+  const today = formatDateKey();
+  const sellers = professionals.filter(p =>
+    p.isActive && (p.role === 'vendedor' || config.roles.some(role => role.key === p.role && role.isActive && role.permissions.includes('vendas')))
+  );
 
   // --- Prótese ---
   const [pForm, setPForm] = useState({ date: today, client: '', whatsapp: '', value: '', sellerId: '', installments: 1, payMethod1: 'pix' as PayMethod, notes: '' });
@@ -23,7 +26,7 @@ export default function Vendas() {
   }, 0);
 
   const maintenanceAlerts = prothesisSales.map(p => {
-    const lastM = p.lastMaintenance ? new Date(p.lastMaintenance) : new Date(p.date);
+    const lastM = p.lastMaintenance ? parseDateKey(p.lastMaintenance) : parseDateKey(p.date);
     const daysSince = Math.floor((new Date().getTime() - lastM.getTime()) / (1000 * 60 * 60 * 24));
     return { ...p, daysSince };
   }).filter(p => p.daysSince >= 10).sort((a,b) => b.daysSince - a.daysSince);
