@@ -24,14 +24,15 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { StatsCard } from '@/components/StatsCard';
+import { formatDateKey, parseDateKey } from '@/data/date';
 
 export default function Dashboard() {
   const { appointments, professionals, products, prothesisSales, mentoriaSessions, isLoading } = useStore();
   const { profile } = useAuth();
-  const ownProfile = profile?.role === 'barbeiro' || profile?.role === 'manicure';
+  const ownProfile = Boolean(profile?.professionalId && profile.role !== 'gestor' && profile.role !== 'dev-admin');
   const [ownPeriod, setOwnPeriod] = useState<'semanal' | 'mensal'>('semanal');
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = formatDateKey();
   const periodStart = new Date();
   periodStart.setHours(0, 0, 0, 0);
   periodStart.setDate(periodStart.getDate() - (ownPeriod === 'semanal' ? 6 : 29));
@@ -71,12 +72,19 @@ export default function Dashboard() {
 
   const todayDate = new Date();
   const prothesisAlerts = prothesisSales.filter(ps => {
-    const lastM = ps.lastMaintenance ? new Date(ps.lastMaintenance) : new Date(ps.date);
+    const lastM = ps.lastMaintenance ? parseDateKey(ps.lastMaintenance) : parseDateKey(ps.date);
     const diffDays = Math.ceil(Math.abs(todayDate.getTime() - lastM.getTime()) / (1000 * 60 * 60 * 24));
     return diffDays >= 10;
   });
 
-  const mentoriaToday = mentoriaSessions.filter(m => m.date === today && m.status === 'scheduled');
+  const mentoriaToday = mentoriaSessions.filter(m =>
+    m.date === today &&
+    m.status === 'scheduled' &&
+    (!ownProfile || m.sellerId === profile?.professionalId)
+  );
+  const visibleProthesisAlerts = ownProfile
+    ? prothesisAlerts.filter(sale => sale.sellerId === profile?.professionalId)
+    : prothesisAlerts;
   const sortedAppointments = [...todayAppointments].sort((a, b) => a.time.localeCompare(b.time));
 
   const STATUS_LABEL: Record<string, string> = {
@@ -271,7 +279,7 @@ export default function Dashboard() {
           <div className="bg-brand-surface border border-brand-border rounded-2xl p-6">
             <h3 className="text-lg font-bold text-foreground mb-4">Agenda de Prótese & Mentoria</h3>
             <div className="space-y-4">
-              {mentoriaToday.length === 0 && prothesisAlerts.length === 0 && (
+              {mentoriaToday.length === 0 && visibleProthesisAlerts.length === 0 && (
                 <div className="text-center py-8 text-muted-foreground">
                   <Briefcase className="w-10 h-10 mx-auto mb-3 opacity-30" />
                   <p className="text-sm">Nada agendado/pendente para hoje</p>
@@ -297,11 +305,11 @@ export default function Dashboard() {
                 </div>
               )}
 
-              {prothesisAlerts.length > 0 && (
+              {visibleProthesisAlerts.length > 0 && (
                 <div>
                   <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Manutenções Prótese</h4>
                   <div className="space-y-2">
-                    {prothesisAlerts.map(p => (
+                    {visibleProthesisAlerts.map(p => (
                       <div key={p.id} className="p-3 bg-destructive/5 rounded-xl border border-destructive/20">
                         <div className="flex justify-between items-start">
                           <div>
