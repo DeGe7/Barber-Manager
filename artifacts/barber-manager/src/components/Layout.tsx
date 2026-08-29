@@ -3,7 +3,7 @@ import { Link, useLocation } from 'wouter';
 import { useAuth } from '@/auth/auth';
 import { canAccess, getNavItemsForRole } from '@/auth/roles';
 import { useStore } from '@/data/store';
-import { ROLE_LABELS } from '@/auth/types';
+import { getRoleLabel } from '@/auth/types';
 import NoAccess from '@/pages/no-access';
 import {
   LayoutDashboard,
@@ -61,8 +61,8 @@ export function Layout({ children }: LayoutProps) {
   if (!profile) return null;
 
   const role = profile.role;
-  const hasAccess = canAccess(role, location);
-  const navItems = getNavItemsForRole(role);
+  const hasAccess = canAccess(role, location, profile.permissions);
+  const navItems = getNavItemsForRole(role, profile.permissions);
   const mobileDailyPaths = ['/', '/agenda', '/controle', '/produtos', '/vendas', '/clientes'];
   const mobileNavItems = mobileDailyPaths
     .map((path) => navItems.find((item) => item.path === path))
@@ -138,7 +138,7 @@ export function Layout({ children }: LayoutProps) {
           </div>
           {!collapsed && <div className="flex-1 min-w-0">
             <p className="text-sm font-bold text-foreground truncate">{profile.name}</p>
-            <p className="text-xs text-brand-gold truncate">{role ? ROLE_LABELS[role] : ''}</p>
+            <p className="text-xs text-brand-gold truncate">{getRoleLabel(role)}</p>
           </div>}
         </div>
         <button 
