@@ -10,6 +10,9 @@ out-tsc
 
 # dependencies
 node_modules
+.env
+.env.*
+!.env.example
 
 # IDEs and editors
 /.idea
@@ -36,6 +39,8 @@ npm-debug.log
 yarn-error.log
 testem.log
 /typings
+test-results/
+playwright-report/
 
 # System Files
 .DS_Store
