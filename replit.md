@@ -1,45 +1,45 @@
-# [Project name]
+# Barber Manager
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Sistema brasileiro de gestão para barbearias, salões de beleza e prótese capilar.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- `pnpm --filter @workspace/barber-manager run dev` — executar o web app
+- `pnpm --filter @workspace/barber-manager run typecheck` — verificar o TypeScript do web app
+- `pnpm --filter @workspace/barber-manager run build` — gerar o build de produção
+- `pnpm --filter @workspace/api-server run typecheck` — verificar o servidor de health/diagnóstico
+- O schema fonte está em `supabase/schema.sql` e deve ser aplicado no SQL Editor do projeto Supabase.
+- O web app precisa de `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY`.
 
 ## Stack
 
-- pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- pnpm workspaces, Node.js, TypeScript, React, Vite e Tailwind
+- Supabase Auth para identidade, sessão e recuperação de acesso
+- Supabase PostgreSQL com RLS por estabelecimento
+- Supabase Storage para avatares e logos
+- Express somente para health check e diagnóstico do ambiente
 
-## Where things live
+## Onde as coisas vivem
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/barber-manager/src/auth` — autenticação, sessão e onboarding
+- `artifacts/barber-manager/src/data/api.ts` — acesso Supabase tipado usado pelas telas
+- `artifacts/barber-manager/src/data/store.tsx` — estado da aplicação e mutações otimistas
+- `supabase/schema.sql` — tabelas, RLS, Storage e RPCs de operações atômicas
+- `artifacts/api-server/src` — servidor mínimo de diagnóstico; não contém CRUD de negócio
 
-## Architecture decisions
+## Decisões de arquitetura
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Supabase é a única fonte de dados do produto; o cliente usa a sessão Supabase e nunca headers de papel/profissional.
+- Cada registro de negócio pertence a uma organização e é protegido por RLS.
+- O primeiro usuário autenticado cria uma organização através de `bootstrap_organization` e recebe o papel de gestor.
+- Estoque é alterado por RPC para evitar corrida entre vendas concorrentes.
+- O banco PostgreSQL legado não é apagado automaticamente; os dados precisam ser validados antes de qualquer descarte.
 
-## Product
+## Produto
 
-_Describe the high-level user-facing capabilities of this app once they exist._
-
-## User preferences
-
-_Populate as you build — explicit user instructions worth remembering across sessions._
+O app inclui dashboard, agenda, controle diário, clientes, profissionais, vendas, estoque, planos, financeiro, comunicação, permissões e configurações com tema escuro/dourado.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
-
-## Pointers
-
-- See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
+- Sem o schema Supabase aplicado, o login continua acessível, mas o onboarding e as telas protegidas informarão que o banco ainda não está configurado.
+- O build do artefato exige que o workflow forneça `PORT` e `BASE_PATH`; use o workflow do artefato em vez de executar o Vite sem essas variáveis.
