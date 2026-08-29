@@ -5,6 +5,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { CreditCard, Plus, Trash2, Edit2, Users, Check, X, MessageSquare } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, AlertDialogFooter, AlertDialogDescription } from '@/components/ui/alert-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { formatDateKey } from '@/data/date';
 
 export default function Planos() {
   const { plans, subscribers, professionals, addPlan, updatePlan, removePlan, addSubscriber, updateSubscriber, removeSubscriber, isLoading } = useStore();
@@ -43,13 +44,14 @@ export default function Planos() {
 
   const [isSubOpen, setIsSubOpen] = useState(false);
   const [subEditingId, setSubEditingId] = useState<string|null>(null);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = formatDateKey();
   const nextMonth = new Date(); nextMonth.setMonth(nextMonth.getMonth()+1);
-  const [subForm, setSubForm] = useState({ name: '', phone: '', planId: '', professionalId: '', startDate: today, nextPayment: nextMonth.toISOString().slice(0, 10), status: 'ativo' as 'ativo'|'vencido'|'pendente' });
+  const nextPayment = formatDateKey(nextMonth);
+  const [subForm, setSubForm] = useState({ name: '', phone: '', planId: '', professionalId: '', startDate: today, nextPayment, status: 'ativo' as 'ativo'|'vencido'|'pendente' });
 
   const handleSubOpen = (s?: Subscriber) => {
     if(s) { setSubEditingId(s.id); setSubForm({ ...s }); }
-    else { setSubEditingId(null); setSubForm({ name: '', phone: '', planId: '', professionalId: '', startDate: today, nextPayment: nextMonth.toISOString().slice(0, 10), status: 'ativo' }); }
+    else { setSubEditingId(null); setSubForm({ name: '', phone: '', planId: '', professionalId: '', startDate: today, nextPayment, status: 'ativo' }); }
     setIsSubOpen(true);
   };
 
