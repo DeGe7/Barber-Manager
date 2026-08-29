@@ -6,10 +6,11 @@ import { toast } from 'sonner';
 
 export default function Login() {
   const [, setLocation] = useLocation();
-  const { signIn } = useAuth();
+  const { signIn, acceptInvitation } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const inviteToken = new URLSearchParams(window.location.search).get('convite') || '';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,6 +21,7 @@ export default function Login() {
     setLoading(true);
     try {
       await signIn(email, password);
+      if (inviteToken) await acceptInvitation(inviteToken);
       toast.success('Bem-vindo de volta!');
       setLocation('/dashboard');
     } catch (error) {
@@ -45,6 +47,11 @@ export default function Login() {
         
         <div className="p-6">
           <form onSubmit={handleSubmit} className="space-y-4">
+            {inviteToken && (
+              <div className="rounded-lg border border-brand-gold/30 bg-brand-gold/10 p-3 text-sm text-brand-gold">
+                Convite encontrado. Use o e-mail que recebeu o convite para entrar na equipe.
+              </div>
+            )}
             <div className="space-y-2">
               <label htmlFor="email" className="text-sm font-medium text-foreground">E-mail</label>
               <input 
@@ -84,7 +91,7 @@ export default function Login() {
             </button>
           </form>
           <p className="text-center text-sm text-muted-foreground mt-6">
-            Ainda não tem uma conta? <Link href="/cadastro" className="text-brand-gold hover:underline">Cadastre-se</Link>
+            Ainda não tem uma conta? <Link href={inviteToken ? `/cadastro?convite=${encodeURIComponent(inviteToken)}` : '/cadastro'} className="text-brand-gold hover:underline">Cadastre-se</Link>
           </p>
         </div>
       </div>
