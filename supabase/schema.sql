@@ -626,7 +626,7 @@ begin
   )
   values (
     public.current_organization_id(), normalized_email, p_professional_id,
-    invitation_role, encode(digest(invitation_token, 'sha256'), 'hex'),
+    invitation_role, encode(extensions.digest(invitation_token, 'sha256'), 'hex'),
     invitation_expires_at, auth.uid()
   )
   returning id into invitation_id;
@@ -662,7 +662,7 @@ begin
   select *
     into invitation
     from public.organization_invitations
-   where token_hash = encode(digest(btrim(p_token), 'sha256'), 'hex')
+   where token_hash = encode(extensions.digest(btrim(p_token), 'sha256'), 'hex')
    for update;
   if invitation.id is null then
     raise exception 'invitation not found or invalid';
