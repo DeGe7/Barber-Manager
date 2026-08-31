@@ -7,6 +7,7 @@ import {
   settleMutation,
   test,
   uniqueName,
+  waitForMutation,
 } from '../fixtures';
 
 test.describe('CRUD dos módulos de negócio', () => {
@@ -27,21 +28,30 @@ test.describe('CRUD dos módulos de negócio', () => {
     await dialog.locator('input').nth(0).fill(name);
     await dialog.locator('input').nth(1).fill('11988887777');
     await dialog.locator('input').nth(3).fill(`${name.replaceAll(' ', '').toLowerCase()}@example.com`);
+    const createResponse = waitForMutation(page, 'clients', 'POST');
     await dialog.getByRole('button', { name: 'Salvar Cliente', exact: true }).click();
-    await expect(page.getByText(name, { exact: true })).toBeVisible();
+    await createResponse;
+    let clientRow = page.locator('tbody tr').filter({ hasText: name });
+    await expect(clientRow).toBeVisible();
     await settleMutation(page);
 
-    await page.getByRole('button', { name: `Editar ${name}`, exact: true }).first().click();
+    await clientRow.getByRole('button', { name: `Editar ${name}`, exact: true }).click();
     const editDialog = page.getByRole('dialog');
     await editDialog.locator('input').nth(0).fill(editedName);
+    const updateResponse = waitForMutation(page, 'clients', 'PATCH');
     await editDialog.getByRole('button', { name: 'Salvar Cliente', exact: true }).click();
-    await expect(page.getByText(editedName, { exact: true })).toBeVisible();
+    await updateResponse;
+    clientRow = page.locator('tbody tr').filter({ hasText: editedName });
+    await expect(clientRow).toBeVisible();
     await settleMutation(page);
 
     await page.reload();
-    await expect(page.getByText(editedName, { exact: true })).toBeVisible();
-    await page.getByRole('button', { name: `Excluir ${editedName}`, exact: true }).first().click();
+    clientRow = page.locator('tbody tr').filter({ hasText: editedName });
+    await expect(clientRow).toBeVisible();
+    const deleteResponse = waitForMutation(page, 'clients', 'DELETE');
+    await clientRow.getByRole('button', { name: `Excluir ${editedName}`, exact: true }).click();
     await page.getByRole('alertdialog').getByRole('button', { name: 'Excluir', exact: true }).click();
+    await deleteResponse;
     await expect(page.getByText(editedName, { exact: true })).toHaveCount(0);
   });
 
@@ -83,14 +93,15 @@ test.describe('CRUD dos módulos de negócio', () => {
     await form.locator('input').nth(4).fill('3');
     await form.locator('input').nth(5).fill('1');
     await form.getByRole('button', { name: 'Salvar Produto', exact: true }).click();
-    await expect(page.getByText(name, { exact: true })).toBeVisible();
+    await expect(page.getByText(name, { exact: true }).first()).toBeVisible();
     await settleMutation(page);
 
-    await page.getByRole('button', { name: `Editar ${name}`, exact: true }).click();
     const row = page.locator('tr').filter({ hasText: name });
-    await row.locator('input').nth(0).fill(editedName);
-    await row.getByRole('button', { name: 'Confirmar edição', exact: true }).click();
-    await expect(page.getByText(editedName, { exact: true })).toBeVisible();
+    await row.getByRole('button', { name: `Editar ${name}`, exact: true }).click();
+    const editingRow = page.locator('tbody tr').filter({ has: page.locator('button[aria-label="Confirmar edição"]') }).first();
+    await editingRow.locator('input').nth(0).fill(editedName);
+    await editingRow.getByRole('button', { name: 'Confirmar edição', exact: true }).click();
+    await expect(page.getByText(editedName, { exact: true }).first()).toBeVisible();
     await settleMutation(page);
 
     const editedRow = page.locator('tr').filter({ hasText: editedName });
@@ -98,7 +109,7 @@ test.describe('CRUD dos módulos de negócio', () => {
     await editedRow.getByRole('button', { name: 'Repor estoque', exact: true }).click();
     await settleMutation(page);
     await page.reload();
-    await expect(page.getByText(editedName, { exact: true })).toBeVisible();
+    await expect(page.getByText(editedName, { exact: true }).first()).toBeVisible();
 
     await page.getByRole('button', { name: `Excluir ${editedName}`, exact: true }).click();
     await page.getByRole('alertdialog').getByRole('button', { name: 'Excluir', exact: true }).click();
@@ -114,20 +125,20 @@ test.describe('CRUD dos módulos de negócio', () => {
     await dialog.locator('input').nth(0).fill(client);
     await dialog.locator('input').nth(1).fill('11977776666');
     await dialog.locator('input').nth(2).fill('50');
-    await dialog.locator('select').nth(0).selectOption({ index: 1 });
+    await dialog.locator('select').nth(1).selectOption({ index: 1 });
     await dialog.getByRole('button', { name: 'Confirmar Agendamento', exact: true }).click();
-    await expect(page.getByText(client, { exact: true })).toBeVisible();
+    await expect(page.getByText(client, { exact: true }).last()).toBeVisible();
     await settleMutation(page);
 
     await page.getByRole('button', { name: `Editar agendamento de ${client}`, exact: true }).click();
     dialog = page.getByRole('dialog');
     await dialog.locator('input').nth(0).fill(editedClient);
     await dialog.getByRole('button', { name: 'Salvar Alterações', exact: true }).click();
-    await expect(page.getByText(editedClient, { exact: true })).toBeVisible();
+    await expect(page.getByText(editedClient, { exact: true }).last()).toBeVisible();
     await settleMutation(page);
 
     await page.reload();
-    await expect(page.getByText(editedClient, { exact: true })).toBeVisible();
+    await expect(page.getByText(editedClient, { exact: true }).last()).toBeVisible();
     await page.getByRole('button', { name: `Excluir agendamento de ${editedClient}`, exact: true }).click();
     await page.getByRole('alertdialog').getByRole('button', { name: 'Excluir', exact: true }).click();
     await expect(page.getByText(editedClient, { exact: true })).toHaveCount(0);
@@ -137,24 +148,24 @@ test.describe('CRUD dos módulos de negócio', () => {
     const client = uniqueName('Venda E2E');
     const editedClient = `${client} editado`;
     await openModule(page, '/vendas', 'Vendas & Mentoria');
-    const form = page.locator('form').filter({ hasText: 'Registrar Venda de Prótese' });
+    const form = page.locator('form').first();
     await form.locator('input').nth(1).fill(client);
     await form.locator('input').nth(2).fill('11966665555');
     await form.locator('input').nth(3).fill('1200');
     await form.locator('select').nth(0).selectOption({ index: 1 });
     await form.getByRole('button', { name: 'Registrar Venda', exact: true }).click();
-    await expect(page.getByText(client, { exact: true })).toBeVisible();
+    await expect(page.getByText(client, { exact: true }).first()).toBeVisible();
     await settleMutation(page);
 
     await page.getByRole('button', { name: `Editar venda de ${client}`, exact: true }).click();
     const dialog = page.getByRole('dialog');
     await dialog.locator('input').nth(1).fill(editedClient);
     await dialog.getByRole('button', { name: 'Salvar Alterações', exact: true }).click();
-    await expect(page.getByText(editedClient, { exact: true })).toBeVisible();
+    await expect(page.getByText(editedClient, { exact: true }).first()).toBeVisible();
     await settleMutation(page);
 
     await page.reload();
-    await expect(page.getByText(editedClient, { exact: true })).toBeVisible();
+    await expect(page.getByText(editedClient, { exact: true }).first()).toBeVisible();
     await page.getByRole('button', { name: `Excluir venda de ${editedClient}`, exact: true }).click();
     await page.getByRole('alertdialog').getByRole('button', { name: 'Excluir', exact: true }).click();
     await expect(page.getByText(editedClient, { exact: true })).toHaveCount(0);
@@ -170,19 +181,19 @@ test.describe('CRUD dos módulos de negócio', () => {
     await form.locator('input').nth(1).fill(client);
     await form.locator('input').nth(2).fill('450');
     await form.getByRole('button', { name: 'Agendar Mentoria', exact: true }).click();
-    await expect(page.getByText(client, { exact: true })).toBeVisible();
+    await expect(page.getByText(client, { exact: true }).first()).toBeVisible();
     await settleMutation(page);
 
     await page.getByRole('button', { name: `Editar sessão de ${client}`, exact: true }).click();
     const dialog = page.getByRole('dialog');
     await dialog.locator('input').nth(1).fill(editedClient);
     await dialog.getByRole('button', { name: 'Salvar Alterações', exact: true }).click();
-    await expect(page.getByText(editedClient, { exact: true })).toBeVisible();
+    await expect(page.getByText(editedClient, { exact: true }).first()).toBeVisible();
     await settleMutation(page);
 
     await page.reload();
     await page.getByRole('button', { name: 'Mentoria', exact: true }).click();
-    await expect(page.getByText(editedClient, { exact: true })).toBeVisible();
+    await expect(page.getByText(editedClient, { exact: true }).first()).toBeVisible();
     await page.getByRole('button', { name: `Excluir sessão de ${editedClient}`, exact: true }).click();
     await page.getByRole('alertdialog').getByRole('button', { name: 'Excluir', exact: true }).click();
     await expect(page.getByText(editedClient, { exact: true })).toHaveCount(0);
@@ -191,25 +202,25 @@ test.describe('CRUD dos módulos de negócio', () => {
   test('cria, edita, exclui e recarrega um plano', async ({ page }) => {
     const name = uniqueName('Plano E2E');
     const editedName = `${name} editado`;
-    await openModule(page, '/planos', 'Planos & Mensalidades');
+    await openModule(page, '/planos', 'Planos Disponíveis');
     await page.getByRole('button', { name: 'Novo Plano', exact: true }).click();
     let dialog = page.getByRole('dialog');
     await dialog.locator('input').nth(0).fill(name);
     await dialog.locator('input').nth(1).fill('99');
     await dialog.locator('input').nth(2).fill('4 cortes');
     await dialog.getByRole('button', { name: 'Salvar Plano', exact: true }).click();
-    await expect(page.getByText(name, { exact: true })).toBeVisible();
+    await expect(page.getByText(name, { exact: true }).first()).toBeVisible();
     await settleMutation(page);
 
     await page.getByRole('button', { name: `Editar plano ${name}`, exact: true }).click();
     dialog = page.getByRole('dialog');
     await dialog.locator('input').nth(0).fill(editedName);
     await dialog.getByRole('button', { name: 'Salvar Plano', exact: true }).click();
-    await expect(page.getByText(editedName, { exact: true })).toBeVisible();
+    await expect(page.getByText(editedName, { exact: true }).first()).toBeVisible();
     await settleMutation(page);
 
     await page.reload();
-    await expect(page.getByText(editedName, { exact: true })).toBeVisible();
+    await expect(page.getByText(editedName, { exact: true }).first()).toBeVisible();
 
     const subscriber = uniqueName('Assinante E2E');
     const editedSubscriber = `${subscriber} editado`;
@@ -220,19 +231,22 @@ test.describe('CRUD dos módulos de negócio', () => {
     await subscriberDialog.locator('select').nth(0).selectOption({ label: editedName });
     await subscriberDialog.locator('select').nth(1).selectOption({ index: 1 });
     await subscriberDialog.getByRole('button', { name: 'Salvar Assinante', exact: true }).click();
-    await expect(page.getByText(subscriber, { exact: true })).toBeVisible();
+    let subscriberRow = page.locator('tbody tr').filter({ hasText: subscriber });
+    await expect(subscriberRow).toBeVisible();
     await settleMutation(page);
 
-    await page.getByRole('button', { name: `Editar assinante ${subscriber}`, exact: true }).click();
+    await subscriberRow.getByRole('button', { name: `Editar assinante ${subscriber}`, exact: true }).click();
     subscriberDialog = page.getByRole('dialog');
     await subscriberDialog.locator('input').nth(0).fill(editedSubscriber);
     await subscriberDialog.getByRole('button', { name: 'Salvar Assinante', exact: true }).click();
-    await expect(page.getByText(editedSubscriber, { exact: true })).toBeVisible();
+    subscriberRow = page.locator('tbody tr').filter({ hasText: editedSubscriber });
+    await expect(subscriberRow).toBeVisible();
     await settleMutation(page);
 
     await page.reload();
-    await expect(page.getByText(editedSubscriber, { exact: true })).toBeVisible();
-    await page.getByRole('button', { name: `Excluir assinante ${editedSubscriber}`, exact: true }).click();
+    subscriberRow = page.locator('tbody tr').filter({ hasText: editedSubscriber });
+    await expect(subscriberRow).toBeVisible();
+    await subscriberRow.getByRole('button', { name: `Excluir assinante ${editedSubscriber}`, exact: true }).click();
     await page.getByRole('alertdialog').getByRole('button', { name: 'Excluir', exact: true }).click();
     await expect(page.getByText(editedSubscriber, { exact: true })).toHaveCount(0);
 
@@ -250,7 +264,7 @@ test.describe('CRUD dos módulos de negócio', () => {
     await dialog.locator('input').nth(1).fill(income);
     await dialog.locator('input').nth(2).fill('321');
     await dialog.getByRole('button', { name: 'Salvar', exact: true }).click();
-    await expect(page.getByText(income, { exact: true })).toBeVisible();
+    await expect(page.getByText(income, { exact: true }).first()).toBeVisible();
     await settleMutation(page);
 
     await page.getByRole('button', { name: 'Lançar despesa', exact: true }).click();
@@ -258,21 +272,23 @@ test.describe('CRUD dos módulos de negócio', () => {
     await dialog.locator('input').nth(1).fill(expense);
     await dialog.locator('input').nth(2).fill('123');
     await dialog.getByRole('button', { name: 'Salvar', exact: true }).click();
-    await expect(page.getByText(expense, { exact: true })).toBeVisible();
+    await expect(page.getByText(expense, { exact: false }).last()).toBeVisible();
     await settleMutation(page);
 
     await page.reload();
-    await expect(page.getByText(income, { exact: true })).toBeVisible();
-    await expect(page.getByText(expense, { exact: true })).toBeVisible();
+    await expect(page.getByText(income, { exact: true }).first()).toBeVisible();
+    await expect(page.getByText(expense, { exact: false }).last()).toBeVisible();
 
-    const incomeRow = page.locator('tr').filter({ hasText: income });
-    await incomeRow.getByRole('button', { name: 'Excluir lançamento', exact: true }).click();
+    const incomeItem = page.locator('p.text-sm.font-medium').filter({ hasText: income })
+      .locator('xpath=ancestor::div[.//button[@aria-label="Excluir lançamento"]][1]');
+    await incomeItem.getByRole('button', { name: 'Excluir lançamento', exact: true }).click();
     await page.getByRole('alertdialog').getByRole('button', { name: 'Excluir', exact: true }).click();
-    const expenseRow = page.locator('tr').filter({ hasText: expense });
-    await expenseRow.getByRole('button', { name: 'Excluir lançamento', exact: true }).click();
+    const expenseItem = page.locator('p.text-sm.font-medium').filter({ hasText: expense })
+      .locator('xpath=ancestor::div[.//button[@aria-label="Excluir lançamento"]][1]');
+    await expenseItem.getByRole('button', { name: 'Excluir lançamento', exact: true }).click();
     await page.getByRole('alertdialog').getByRole('button', { name: 'Excluir', exact: true }).click();
     await expect(page.getByText(income, { exact: true })).toHaveCount(0);
-    await expect(page.getByText(expense, { exact: true })).toHaveCount(0);
+    await expect(page.getByText(expense, { exact: false })).toHaveCount(0);
   });
 
   test('valida pagamento dividido antes de alterar estoque', async ({ page }) => {
@@ -285,12 +301,19 @@ test.describe('CRUD dos módulos de negócio', () => {
     await productForm.locator('input').nth(3).fill('10');
     await productForm.locator('input').nth(4).fill('5');
     await productForm.locator('input').nth(5).fill('1');
+    const productResponse = page.waitForResponse(response =>
+      response.url().includes('/rest/v1/products') &&
+      response.request().method() === 'POST' &&
+      response.ok(),
+    );
     await productForm.getByRole('button', { name: 'Salvar Produto', exact: true }).click();
+    await productResponse;
     await settleMutation(page);
 
     await openModule(page, '/controle', 'Controle Diário');
-    const form = page.locator('form').filter({ hasText: 'Registrar Atendimento' });
+    const form = page.locator('form').filter({ has: page.getByRole('button', { name: /^Salvar Atendimento/ }) });
     await form.locator('input').nth(0).fill(uniqueName('Cliente split'));
+    await form.locator('select').nth(1).selectOption({ index: 1 });
     await form.locator('input').nth(1).fill('10');
     await form.getByRole('button', { name: 'Adicionar Produto', exact: true }).click();
     const productOption = form.locator('select').nth(2).locator('option').filter({ hasText: product });
@@ -313,8 +336,14 @@ test.describe('CRUD dos módulos de negócio', () => {
     const name = uniqueName('Barbearia E2E');
     await openModule(page, '/configuracoes', 'Configurações');
     await page.getByPlaceholder('Ex: Barber Manager').fill(name);
+    const settingsResponse = page.waitForResponse(response =>
+      response.url().includes('/organization_settings') &&
+      response.request().method() === 'POST' &&
+      response.ok(),
+    );
     await page.getByRole('button', { name: 'Salvar Alterações', exact: true }).click();
-    await expect(page.getByText('Dados salvos com sucesso.', { exact: false })).toBeVisible();
+    await settingsResponse;
+    await expect(page.getByText('Configurações salvas com sucesso.', { exact: true })).toBeVisible();
     await settleMutation(page);
     await page.reload();
     await expect(page.getByPlaceholder('Ex: Barber Manager')).toHaveValue(name);
