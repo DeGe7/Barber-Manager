@@ -10,6 +10,7 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
   const inviteToken = new URLSearchParams(window.location.search).get('convite') || '';
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -19,13 +20,16 @@ export default function Login() {
       return;
     }
     setLoading(true);
+    setErrorMessage('');
     try {
       await signIn(email, password);
       if (inviteToken) await acceptInvitation(inviteToken);
       toast.success('Bem-vindo de volta!');
       setLocation('/dashboard');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Não foi possível entrar.');
+      const message = error instanceof Error ? error.message : 'Não foi possível entrar.';
+      setErrorMessage(message);
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -51,6 +55,11 @@ export default function Login() {
               <div className="rounded-lg border border-brand-gold/30 bg-brand-gold/10 p-3 text-sm text-brand-gold">
                 Convite encontrado. Use o e-mail que recebeu o convite para entrar na equipe.
               </div>
+            )}
+            {errorMessage && (
+              <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                {errorMessage}
+              </p>
             )}
             <div className="space-y-2">
               <label htmlFor="email" className="text-sm font-medium text-foreground">E-mail</label>
