@@ -1,4 +1,4 @@
-import { accounts, expect, loginAs, requireAccount, test } from '../fixtures';
+import { accounts, expect, invitationTokens, loginAs, requireAccount, test } from '../fixtures';
 
 test.describe('autenticação e onboarding', () => {
   test('redireciona uma rota protegida para o login quando não há sessão', async ({ page }) => {
@@ -26,7 +26,9 @@ test.describe('autenticação e onboarding', () => {
     await page.getByLabel('E-mail').fill(account.email);
     await page.getByLabel('Senha').fill(`${account.password}-invalid`);
     await page.getByRole('button', { name: 'Entrar', exact: true }).click();
-    await expect(page.getByText('E-mail ou senha inválidos.', { exact: true })).toBeVisible();
+    await expect(
+      page.locator('[role="alert"]').filter({ hasText: 'E-mail ou senha inválidos.' }),
+    ).toBeVisible();
     await expect(page).toHaveURL(/\/login/);
   });
 
@@ -59,7 +61,7 @@ test.describe('autenticação e onboarding', () => {
   });
 
   test('preserves an invitation token when navigating to sign in or sign up', async ({ page }) => {
-    const token = process.env.E2E_INVITATION_TOKEN;
+    const token = invitationTokens.pending;
     test.skip(!token, 'Requires E2E_INVITATION_TOKEN from a pending invitation.');
     await page.goto(`/login?convite=${encodeURIComponent(token!)}`);
     await expect(page.getByText('Convite encontrado.', { exact: false })).toBeVisible();
