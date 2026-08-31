@@ -2,9 +2,21 @@ import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
 
-const port = Number(process.env.E2E_PORT || process.env.PORT || 23945);
+const port = Number(
+  process.env.E2E_PORT ||
+    (process.env.E2E_PROVISION === 'true' ? 23946 : process.env.PORT || 23945),
+);
 const baseURL = process.env.E2E_BASE_URL || `http://127.0.0.1:${port}`;
 const startServer = process.env.E2E_START_SERVER === 'true';
+if (
+  process.env.E2E_PROVISION === 'true' &&
+  startServer &&
+  !process.env.E2E_SUPABASE_TEST_ANON_KEY
+) {
+  throw new Error(
+    'E2E_SUPABASE_TEST_ANON_KEY is required when provisioning with E2E_START_SERVER=true.',
+  );
+}
 const nixLibraryPath = (() => {
   const store = '/nix/store';
   if (!existsSync(store)) return process.env.LD_LIBRARY_PATH || '';
@@ -17,6 +29,8 @@ const nixLibraryPath = (() => {
 
 export default defineConfig({
   testDir: './tests',
+  globalSetup: './global-setup.ts',
+  globalTeardown: './global-teardown.ts',
   timeout: 45_000,
   expect: {
     timeout: 10_000,
@@ -45,6 +59,15 @@ export default defineConfig({
         url: baseURL,
         reuseExistingServer: !process.env.CI,
         timeout: 120_000,
+        env: {
+          ...process.env,
+          ...(process.env.E2E_SUPABASE_TEST_URL
+            ? { VITE_SUPABASE_URL: process.env.E2E_SUPABASE_TEST_URL }
+            : {}),
+          ...(process.env.E2E_SUPABASE_TEST_ANON_KEY
+            ? { VITE_SUPABASE_ANON_KEY: process.env.E2E_SUPABASE_TEST_ANON_KEY }
+            : {}),
+        },
       }
     : undefined,
 });
