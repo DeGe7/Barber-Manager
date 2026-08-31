@@ -1,6 +1,7 @@
 import {
   accounts,
   expect,
+  invitationTokens,
   loginAs,
   openModule,
   requireAccount,
@@ -22,18 +23,18 @@ test.describe('visibilidade e restrições por papel', () => {
       'Financeiro',
       'Configurações',
     ]) {
-      await expect(page.getByRole('link', { name: label, exact: true })).toBeVisible();
+      await expect(page.getByRole('complementary').getByRole('link', { name: label, exact: true })).toBeVisible();
     }
     await openModule(page, '/configuracoes/acesso', 'Configurações');
     await expect(page.getByRole('button', { name: 'Salvar permissões', exact: true })).toBeVisible();
-    await expect(page.getByText('Acesso total', { exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Papéis e Acesso', exact: true })).toBeVisible();
   });
 
   test('profissional operacional vê apenas a operação autorizada e recebe acesso restrito', async ({ page }) => {
     test.skip(!accounts.operational, 'Requires E2E_OPERATIONAL_EMAIL and E2E_OPERATIONAL_PASSWORD.');
     await loginAs(page, requireAccount(accounts.operational, 'operational'));
     for (const label of ['Controle Diário', 'Agenda']) {
-      await expect(page.getByRole('link', { name: label, exact: true })).toBeVisible();
+      await expect(page.getByRole('complementary').getByRole('link', { name: label, exact: true })).toBeVisible();
     }
     for (const label of ['Profissionais', 'Produtos & Estoque', 'Financeiro', 'Configurações']) {
       await expect(page.getByRole('link', { name: label, exact: true })).toHaveCount(0);
@@ -57,7 +58,7 @@ test.describe('visibilidade e restrições por papel', () => {
 
 test.describe('convites da equipe', () => {
   test('exibe uma página pública de convite e preserva o token nos links', async ({ page }) => {
-    const token = process.env.E2E_INVITATION_TOKEN;
+    const token = invitationTokens.pending;
     test.skip(!token, 'Requires E2E_INVITATION_TOKEN from a pending invitation.');
     await page.goto(`/convite/${encodeURIComponent(token!)}`);
     await expect(page.getByRole('heading', { name: 'Convite para a equipe', exact: true })).toBeVisible();
@@ -65,39 +66,45 @@ test.describe('convites da equipe', () => {
     await expect(page.getByRole('link', { name: 'Criar minha conta', exact: true })).toHaveAttribute('href', /convite=/);
   });
 
-  async function submitInvitationLogin(page: Parameters<typeof loginAs>[0], accountName: 'invited' | 'manager', token: string) {
+  async function submitInvitationLogin(page: Parameters<typeof loginAs>[0], accountName: 'expired' | 'revoked' | 'invited' | 'manager', token: string) {
     const account = requireAccount(accounts[accountName], accountName);
     await page.goto(`/login?convite=${encodeURIComponent(token)}`);
     await page.getByLabel('E-mail').fill(account.email);
     await page.getByLabel('Senha').fill(account.password);
+    const invitationResponse = page.waitForResponse(response =>
+      response.url().includes('/rpc/accept_organization_invitation') &&
+      response.request().method() === 'POST',
+    );
     await page.getByRole('button', { name: 'Entrar', exact: true }).click();
+    const response = await invitationResponse;
+    expect(response.ok()).toBe(false);
   }
 
   test('recusa convite expirado', async ({ page }) => {
-    const token = process.env.E2E_EXPIRED_INVITATION_TOKEN;
-    test.skip(!token || !accounts.invited, 'Requires E2E_EXPIRED_INVITATION_TOKEN and an invited account.');
-    await submitInvitationLogin(page, 'invited', token!);
-    await expect(page.getByText(/Este convite expirou/i)).toBeVisible();
+    const token = invitationTokens.expired;
+    test.skip(!token || !accounts.expired, 'Requires the provisioned expired-invitation account.');
+    await submitInvitationLogin(page, 'expired', token!);
+    await expect(page.locator('[role="alert"]').filter({ hasText: 'Este convite expirou' })).toBeVisible();
   });
 
   test('recusa convite revogado', async ({ page }) => {
-    const token = process.env.E2E_REVOKED_INVITATION_TOKEN;
-    test.skip(!token || !accounts.invited, 'Requires E2E_REVOKED_INVITATION_TOKEN and an invited account.');
-    await submitInvitationLogin(page, 'invited', token!);
-    await expect(page.getByText(/convite foi revogado/i)).toBeVisible();
+    const token = invitationTokens.revoked;
+    test.skip(!token || !accounts.revoked, 'Requires the provisioned revoked-invitation account.');
+    await submitInvitationLogin(page, 'revoked', token!);
+    await expect(page.locator('[role="alert"]').filter({ hasText: 'convite foi revogado' })).toBeVisible();
   });
 
   test('recusa convite que já foi usado', async ({ page }) => {
-    const token = process.env.E2E_USED_INVITATION_TOKEN;
-    test.skip(!token || !accounts.invited, 'Requires E2E_USED_INVITATION_TOKEN and an invited account.');
-    await submitInvitationLogin(page, 'invited', token!);
-    await expect(page.getByText(/convite já foi utilizado/i)).toBeVisible();
+    const token = invitationTokens.used;
+    test.skip(!token || !accounts.expired, 'Requires the provisioned used-invitation account.');
+    await submitInvitationLogin(page, 'expired', token!);
+    await expect(page.locator('[role="alert"]').filter({ hasText: 'convite já foi utilizado' })).toBeVisible();
   });
 
   test('recusa o uso por uma conta com e-mail diferente', async ({ page }) => {
-    const token = process.env.E2E_EMAIL_CHECK_INVITATION_TOKEN;
+    const token = invitationTokens.emailCheck;
     test.skip(!token || !accounts.manager, 'Requires E2E_EMAIL_CHECK_INVITATION_TOKEN and a manager account.');
     await submitInvitationLogin(page, 'manager', token!);
-    await expect(page.getByText(/e-mail que recebeu este convite/i)).toBeVisible();
+    await expect(page.locator('[role="alert"]').filter({ hasText: 'e-mail que recebeu este convite' })).toBeVisible();
   });
 });
