@@ -68,12 +68,13 @@ export default function Clientes() {
     setIsOpen(true);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.name || !form.whatsapp) { toast.error('Nome e WhatsApp são obrigatórios'); return; }
     if (form.source === 'Outro' && !form.sourceOther.trim()) { toast.error('Descreva a origem do cliente'); return; }
-    if (editingId) { updateClient(editingId, form); toast.success('Cliente atualizado'); }
-    else { addClient(form); toast.success('Cliente cadastrado'); }
+    const saved = editingId ? await updateClient(editingId, form) : await addClient(form);
+    if (!saved) return;
+    toast.success(editingId ? 'Cliente atualizado' : 'Cliente cadastrado');
     setIsOpen(false);
   };
 
@@ -87,10 +88,10 @@ export default function Clientes() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clients]);
 
-  const handleAddVisit = (e: React.FormEvent) => {
+  const handleAddVisit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedClient) return;
-    addVisit(selectedClient.id, visitForm);
+    if (!await addVisit(selectedClient.id, visitForm)) return;
     toast.success('Visita registrada');
     setVisitForm({ date: formatDateKey(today), type: 'servico', description: '', professional: '', amount: 0 });
   };
@@ -252,7 +253,7 @@ export default function Clientes() {
                                                       </div>
                                                       <div className="flex items-center gap-3">
                                                         <span className="font-bold">{brl(v.amount)}</span>
-                                                        <button aria-label="Remover visita" onClick={() => { removeVisit(selectedClient.id, v.id); toast.success('Removido'); }} className="text-destructive hover:bg-destructive/10 p-1 rounded transition-all hover:scale-105"><Trash2 className="w-4 h-4"/></button>
+                                                        <button aria-label="Remover visita" onClick={async () => { if (await removeVisit(selectedClient.id, v.id)) toast.success('Removido'); }} className="text-destructive hover:bg-destructive/10 p-1 rounded transition-all hover:scale-105"><Trash2 className="w-4 h-4"/></button>
                                                       </div>
                                                     </div>
                                                   ))
@@ -268,7 +269,7 @@ export default function Clientes() {
                                       <AlertDialogTrigger asChild><button aria-label={`Excluir ${c.name}`} className="p-2 text-destructive hover:bg-destructive/10 rounded-lg transition-all hover:scale-105"><Trash2 className="w-4 h-4" /></button></AlertDialogTrigger>
                                       <AlertDialogContent className="bg-brand-surface border-brand-border text-foreground">
                                         <AlertDialogHeader><AlertDialogTitle>Excluir cliente?</AlertDialogTitle><AlertDialogDescription>Excluirá todo o histórico de visitas também.</AlertDialogDescription></AlertDialogHeader>
-                                        <AlertDialogFooter><AlertDialogCancel className="bg-brand-bg border-brand-border">Cancelar</AlertDialogCancel><AlertDialogAction onClick={() => {removeClient(c.id); toast.success('Excluído');}} className="bg-destructive text-destructive-foreground">Excluir</AlertDialogAction></AlertDialogFooter>
+                                        <AlertDialogFooter><AlertDialogCancel className="bg-brand-bg border-brand-border">Cancelar</AlertDialogCancel><AlertDialogAction onClick={async () => {if (await removeClient(c.id)) toast.success('Excluído');}} className="bg-destructive text-destructive-foreground">Excluir</AlertDialogAction></AlertDialogFooter>
                                       </AlertDialogContent>
                                     </AlertDialog>
                                   </div>
@@ -318,7 +319,7 @@ export default function Clientes() {
                                   <AlertDialogTrigger asChild><button aria-label={`Excluir ${c.name}`} className="p-1.5 text-destructive hover:bg-destructive/10 rounded-lg transition-all hover:scale-105"><Trash2 className="w-4 h-4" /></button></AlertDialogTrigger>
                                   <AlertDialogContent className="bg-brand-surface border-brand-border text-foreground">
                                     <AlertDialogHeader><AlertDialogTitle>Excluir cliente?</AlertDialogTitle><AlertDialogDescription>Excluirá todo o histórico.</AlertDialogDescription></AlertDialogHeader>
-                                    <AlertDialogFooter><AlertDialogCancel className="bg-brand-bg border-brand-border">Cancelar</AlertDialogCancel><AlertDialogAction onClick={() => {removeClient(c.id); toast.success('Excluído');}} className="bg-destructive text-destructive-foreground">Excluir</AlertDialogAction></AlertDialogFooter>
+                                    <AlertDialogFooter><AlertDialogCancel className="bg-brand-bg border-brand-border">Cancelar</AlertDialogCancel><AlertDialogAction onClick={async () => {if (await removeClient(c.id)) toast.success('Excluído');}} className="bg-destructive text-destructive-foreground">Excluir</AlertDialogAction></AlertDialogFooter>
                                   </AlertDialogContent>
                                 </AlertDialog>
                               </div>
