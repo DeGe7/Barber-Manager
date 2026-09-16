@@ -5,6 +5,7 @@ import { canAccess, getNavItemsForRole } from '@/auth/roles';
 import { useStore } from '@/data/store';
 import { getRoleLabel } from '@/auth/types';
 import NoAccess from '@/pages/no-access';
+import { useTheme } from '@/components/theme-provider';
 import {
   LayoutDashboard,
   Calendar,
@@ -20,6 +21,8 @@ import {
   Menu,
   X,
   Scissors,
+  Sun,
+  Moon,
   ChevronLeft,
   ChevronRight,
   MessageSquare
@@ -49,6 +52,7 @@ export function Layout({ children }: LayoutProps) {
   const [location, setLocation] = useLocation();
   const { profile, signOut } = useAuth();
   const store = useStore();
+  const { theme, toggleTheme } = useTheme();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try {
@@ -201,6 +205,15 @@ export function Layout({ children }: LayoutProps) {
             <div className="hidden md:flex items-center text-sm font-medium text-muted-foreground bg-brand-surface px-4 py-2 rounded-lg border border-brand-border">
               {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
             </div>
+             <button
+               type="button"
+               onClick={toggleTheme}
+               aria-label={theme === 'dark' ? 'Ativar tema claro' : 'Ativar tema escuro'}
+               title={theme === 'dark' ? 'Tema claro' : 'Tema escuro'}
+               className="w-10 h-10 flex items-center justify-center rounded-lg border border-brand-border bg-brand-surface text-brand-gold hover:border-brand-gold/60 hover:bg-brand-gold/10 transition-colors"
+             >
+               {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+             </button>
             <Link href="/perfil" aria-label="Abrir meu perfil" title="Meu Perfil" className="flex items-center gap-2 rounded-lg border border-brand-border bg-brand-surface p-1.5 md:pr-3 hover:border-brand-gold/60 transition-colors">
               <div className="w-8 h-8 rounded-full bg-brand-bg border border-brand-border flex items-center justify-center text-brand-gold font-bold text-sm overflow-hidden">
                 {profile.avatar ? <img src={profile.avatar} alt="" className="w-full h-full object-cover" /> : profile.name.charAt(0).toUpperCase()}
