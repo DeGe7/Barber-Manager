@@ -15,6 +15,7 @@ export interface Credentials {
 
 export interface E2EFixtureManifest {
   organizationId: string;
+  onboardingUserId: string;
   accounts: {
     manager: Credentials;
     operational: Credentials;
@@ -34,6 +35,17 @@ export interface E2EFixtureManifest {
   userIds: string[];
 }
 
+export interface E2EFixtureCleanupState {
+  organizationId?: string;
+  userIds: string[];
+}
+
+export interface E2EScenarioSnapshot {
+  organizationId: string;
+  onboardingUserId: string;
+  startedAt: string;
+}
+
 interface ProvisionConfig {
   url: string;
   serviceRoleKey: string;
@@ -44,8 +56,38 @@ interface AuthUser {
   id: string;
 }
 
+const currentSchemaVersion = '2026-09-07';
+const requiredSchemaTables = [
+  ['organizations', 'id'],
+  ['profiles', 'id'],
+  ['professionals', 'id'],
+  ['organization_members', 'organization_id'],
+  ['organization_invitations', 'id'],
+  ['communication_sends', 'id'],
+  ['schema_metadata', 'key'],
+  ['organization_settings', 'organization_id'],
+  ['appointments', 'id'],
+  ['blocks', 'id'],
+  ['clients', 'id'],
+  ['products', 'id'],
+  ['expenses', 'id'],
+  ['incomes', 'id'],
+  ['finance_entry_changes', 'id'],
+  ['prothesis_sales', 'id'],
+  ['mentoria_sessions', 'id'],
+  ['subscription_plans', 'id'],
+  ['subscribers', 'id'],
+  [
+    'subscription_payments',
+    'id,subscriber_id,due_date,paid_at,amount,payment_method,status,note,organization_id,created_at,updated_at',
+  ],
+] as const;
+
 const fixtureFile = resolve(
   process.env.E2E_FIXTURE_FILE || 'test-results/e2e-fixtures.json',
+);
+const cleanupStateFile = resolve(
+  process.env.E2E_FIXTURE_STATE_FILE || `${fixtureFile}.pending`,
 );
 
 export function isProvisioningEnabled() {
@@ -142,7 +184,7 @@ async function request(
 async function postgrest(
   config: ProvisionConfig,
   table: string,
-  body: unknown,
+  body: unknown = undefined,
   options: {
     method?: string;
     query?: string;
@@ -163,6 +205,38 @@ async function postgrest(
     },
   );
   return Array.isArray(response) ? response as Record<string, unknown>[] : [];
+}
+
+async function assertCurrentSchema(config: ProvisionConfig): Promise<void> {
+  try {
+    const metadata = await postgrest(config, 'schema_metadata', undefined, {
+      method: 'GET',
+      query: `?key=eq.app_schema_version&value=eq.${encodeURIComponent(currentSchemaVersion)}&select=key&limit=1`,
+    });
+    if (metadata.length !== 1) {
+      throw new Error(
+        `the schema marker app_schema_version=${currentSchemaVersion} was not found`,
+      );
+    }
+
+    for (const [table, columns] of requiredSchemaTables) {
+      await postgrest(config, table, undefined, {
+        method: 'GET',
+        query: `?select=${encodeURIComponent(columns)}&limit=0`,
+      });
+    }
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      [
+        'E2E Supabase schema check failed before fixture provisioning.',
+        `Expected schema version ${currentSchemaVersion} and all current application tables, including subscription_payments.`,
+        'Apply the complete supabase/schema.sql to the dedicated E2E Supabase project, then run the suite again.',
+        `Supabase reported: ${detail}`,
+      ].join('\n'),
+      { cause: error },
+    );
+  }
 }
 
 async function createUser(
@@ -224,6 +298,14 @@ function email(role: string, id: string) {
   return `e2e-${role}-${id}@${domain}`;
 }
 
+function dateKey(offsetDays = 0) {
+  const date = new Date();
+  date.setHours(12, 0, 0, 0);
+  date.setDate(date.getDate() + offsetDays);
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 async function createInvitation(
   config: ProvisionConfig,
   input: {
@@ -253,10 +335,45 @@ async function createInvitation(
   if (!rows[0]?.id) throw new Error('Supabase did not return the invitation id.');
 }
 
+function writeCleanupState(state: E2EFixtureCleanupState) {
+  mkdirSync(dirname(cleanupStateFile), { recursive: true });
+  writeFileSync(cleanupStateFile, `${JSON.stringify(state)}\n`, {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
+  chmodSync(cleanupStateFile, 0o600);
+}
+
+function removeFixtureFiles() {
+  rmSync(fixtureFile, { force: true });
+  rmSync(cleanupStateFile, { force: true });
+}
+
+async function pauseAfterCheckpoint(checkpoint: 'users' | 'organization') {
+  if (process.env.E2E_PROVISION_PAUSE_AFTER !== checkpoint) return;
+  await new Promise<void>(() => {
+    setInterval(() => {}, 1_000);
+  });
+}
+
+export function readFixtureCleanupState(): E2EFixtureCleanupState | undefined {
+  try {
+    const state = JSON.parse(readFileSync(cleanupStateFile, 'utf8')) as Partial<E2EFixtureCleanupState>;
+    if (!Array.isArray(state.userIds)) return undefined;
+    return {
+      organizationId: typeof state.organizationId === 'string' ? state.organizationId : undefined,
+      userIds: state.userIds.filter((value): value is string => typeof value === 'string'),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 export async function provisionFixtures(): Promise<void> {
   if (!isProvisioningEnabled()) return;
   const config = getConfig();
-  if (readFixtureManifest()) {
+  await assertCurrentSchema(config);
+  if (readFixtureManifest() || readFixtureCleanupState()) {
     await cleanupFixtures(config);
   }
   const id = runId();
@@ -286,8 +403,10 @@ export async function provisionFixtures(): Promise<void> {
       };
       const user = await createUser(config, credentials.email, fullName, credentials.password);
       userIds.push(user.id);
+      writeCleanupState({ userIds, organizationId });
       accountEntries.push([role, { credentials, userId: user.id }]);
     }
+    await pauseAfterCheckpoint('users');
     const createdAccounts = Object.fromEntries(accountEntries) as Record<
       (typeof accountSpecs)[number][0],
       { credentials: Credentials; userId: string }
@@ -305,6 +424,8 @@ export async function provisionFixtures(): Promise<void> {
     });
     organizationId = String(organizationResponse || '');
     if (!organizationId) throw new Error('Supabase did not return the test organization id.');
+    writeCleanupState({ userIds, organizationId });
+    await pauseAfterCheckpoint('organization');
 
     await postgrest(
       config,
@@ -464,8 +585,79 @@ export async function provisionFixtures(): Promise<void> {
       expiresAt: future(7),
     });
 
+    const revenueAppointments = await postgrest(config, 'appointments', [
+      {
+        id: `e2e-revenue-today-${id}`,
+        date: dateKey(),
+        time: '09:00',
+        client: `Cliente faturamento hoje ${id}`,
+        professional_id: professionalIds[0],
+        service: 'Barbearia',
+        duration: 30,
+        status: 'completed',
+        value: 100,
+        tip: 10,
+        products: [],
+        pay_method: 'pix',
+        payment_splits: [],
+        organization_id: organizationId,
+      },
+      {
+        id: `e2e-revenue-today-secondary-${id}`,
+        date: dateKey(),
+        time: '10:00',
+        client: `Cliente faturamento hoje 2 ${id}`,
+        professional_id: professionalIds[1],
+        service: 'Barbearia',
+        duration: 30,
+        status: 'completed',
+        value: 50,
+        tip: 0,
+        products: [],
+        pay_method: 'dinheiro',
+        payment_splits: [],
+        organization_id: organizationId,
+      },
+      {
+        id: `e2e-revenue-week-${id}`,
+        date: dateKey(-3),
+        time: '11:00',
+        client: `Cliente faturamento semanal ${id}`,
+        professional_id: professionalIds[0],
+        service: 'Barbearia',
+        duration: 30,
+        status: 'completed',
+        value: 200,
+        tip: 0,
+        products: [],
+        pay_method: 'credito',
+        payment_splits: [],
+        organization_id: organizationId,
+      },
+      {
+        id: `e2e-revenue-month-${id}`,
+        date: dateKey(-10),
+        time: '12:00',
+        client: `Cliente faturamento mensal ${id}`,
+        professional_id: professionalIds[1],
+        service: 'Barbearia',
+        duration: 30,
+        status: 'completed',
+        value: 300,
+        tip: 0,
+        products: [],
+        pay_method: 'debito',
+        payment_splits: [],
+        organization_id: organizationId,
+      },
+    ], { authorizationToken: managerToken });
+    if (revenueAppointments.length !== 4) {
+      throw new Error(`Supabase did not create all E2E revenue appointments (created ${revenueAppointments.length}).`);
+    }
+
     const manifest: E2EFixtureManifest = {
       organizationId,
+      onboardingUserId: createdAccounts.onboarding.userId,
       accounts: {
         manager: createdAccounts.manager.credentials,
         operational: createdAccounts.operational.credentials,
@@ -487,6 +679,7 @@ export async function provisionFixtures(): Promise<void> {
     mkdirSync(dirname(config.fixtureFile), { recursive: true });
     writeFileSync(config.fixtureFile, `${JSON.stringify(manifest)}\n`, { encoding: 'utf8', mode: 0o600 });
     chmodSync(config.fixtureFile, 0o600);
+    rmSync(cleanupStateFile, { force: true });
   } catch (error) {
     await cleanupFixtures(config, { organizationId, userIds });
     throw error;
@@ -506,9 +699,16 @@ export async function cleanupFixtures(
   partial: { organizationId?: string; userIds?: string[] } = {},
 ): Promise<void> {
   const manifest = readFixtureManifest();
-  const userIds = [...new Set([...(partial.userIds || []), ...(manifest?.userIds || [])])];
+  const cleanupState = readFixtureCleanupState();
+  const userIds = [
+    ...new Set([
+      ...(partial.userIds || []),
+      ...(cleanupState?.userIds || []),
+      ...(manifest?.userIds || []),
+    ]),
+  ];
   const organizationIds = new Set(
-    [partial.organizationId, manifest?.organizationId].filter(
+    [partial.organizationId, cleanupState?.organizationId, manifest?.organizationId].filter(
       (value): value is string => Boolean(value),
     ),
   );
@@ -586,9 +786,109 @@ export async function cleanupFixtures(
       cleanupErrors.push(`could not delete organization ${organizationId}: ${String(error)}`);
     }
   }
-  rmSync(config.fixtureFile, { force: true });
   if (cleanupErrors.length) {
     throw new Error(`E2E fixture cleanup failed:\n${cleanupErrors.join('\n')}`);
+  }
+  removeFixtureFiles();
+}
+
+const scenarioCleanupTables = [
+  { name: 'subscription_payments', timestampColumn: 'created_at' },
+  { name: 'finance_entry_changes', timestampColumn: 'changed_at' },
+  { name: 'organization_invitations', timestampColumn: 'created_at' },
+  { name: 'organization_members', timestampColumn: 'created_at' },
+  { name: 'communication_sends', timestampColumn: 'created_at' },
+  { name: 'appointments', timestampColumn: 'created_at' },
+  { name: 'blocks', timestampColumn: 'created_at' },
+  { name: 'subscribers', timestampColumn: 'created_at' },
+  { name: 'expenses', timestampColumn: 'created_at' },
+  { name: 'incomes', timestampColumn: 'created_at' },
+  { name: 'prothesis_sales', timestampColumn: 'created_at' },
+  { name: 'mentoria_sessions', timestampColumn: 'created_at' },
+  { name: 'clients', timestampColumn: 'created_at' },
+  { name: 'products', timestampColumn: 'created_at' },
+  { name: 'professionals', timestampColumn: 'created_at' },
+  { name: 'subscription_plans', timestampColumn: 'created_at' },
+] as const;
+
+export function beginScenarioSnapshot(): E2EScenarioSnapshot | undefined {
+  if (!isProvisioningEnabled()) return undefined;
+  const manifest = readFixtureManifest();
+  return manifest?.organizationId && manifest.onboardingUserId
+    ? {
+        organizationId: manifest.organizationId,
+        onboardingUserId: manifest.onboardingUserId,
+        startedAt: new Date().toISOString(),
+      }
+    : undefined;
+}
+
+export async function cleanupScenarioFixtures(
+  snapshot: E2EScenarioSnapshot | undefined,
+  config?: ProvisionConfig,
+): Promise<void> {
+  if (!snapshot) return;
+  const resolvedConfig = config || getConfig();
+  const cleanupErrors: string[] = [];
+  const organizationId = encodeURIComponent(snapshot.organizationId);
+  const startedAt = encodeURIComponent(snapshot.startedAt);
+  const onboardingUserId = encodeURIComponent(snapshot.onboardingUserId);
+
+  for (const table of scenarioCleanupTables) {
+    try {
+      await request(
+        resolvedConfig,
+        `/rest/v1/${table.name}?organization_id=eq.${organizationId}&${table.timestampColumn}=gt.${startedAt}`,
+        {
+          method: 'DELETE',
+          headers: { Prefer: 'return=minimal' },
+        },
+      );
+    } catch (error) {
+      cleanupErrors.push(`could not delete scenario ${table.name} rows: ${String(error)}`);
+    }
+  }
+
+  try {
+    const memberships = await request(
+      resolvedConfig,
+      `/rest/v1/organization_members?user_id=eq.${onboardingUserId}&select=organization_id`,
+    );
+    if (Array.isArray(memberships)) {
+      const onboardingOrganizationIds = new Set(
+        memberships
+          .filter((membership): membership is Record<string, unknown> => (
+            Boolean(membership) && typeof membership === 'object'
+          ))
+          .map(membership => membership.organization_id)
+          .filter(
+            (value): value is string => typeof value === 'string' && value !== snapshot.organizationId,
+          ),
+      );
+
+      for (const onboardingOrganizationId of onboardingOrganizationIds) {
+        try {
+          await request(
+            resolvedConfig,
+            `/rest/v1/organizations?id=eq.${encodeURIComponent(onboardingOrganizationId)}`,
+            {
+              method: 'DELETE',
+              headers: { Prefer: 'return=minimal' },
+            },
+          );
+        } catch (error) {
+          cleanupErrors.push(
+            `could not delete onboarding organization ${onboardingOrganizationId}: ${String(error)}`,
+          );
+        }
+      }
+    }
+  } catch (error) {
+    cleanupErrors.push(`could not discover onboarding organizations: ${String(error)}`);
+  }
+
+  if (cleanupErrors.length) {
+    throw new Error(`E2E scenario fixture cleanup failed:\n${cleanupErrors.join('\n')}`);
   }
 }
 
