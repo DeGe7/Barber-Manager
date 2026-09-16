@@ -122,8 +122,10 @@ export interface AuthState {
   session: Session | null;
   profile: UserSession | null;
   loading: boolean;
-  signIn: (email: string, password: string) => Promise<void>;
-  signUp: (name: string, email: string, password: string) => Promise<{ needsEmailConfirmation: boolean }>;
+  signIn: (email: string, password: string, captchaToken?: string | null) => Promise<void>;
+  signUp: (name: string, email: string, password: string, captchaToken?: string | null) => Promise<{ needsEmailConfirmation: boolean }>;
+  requestPasswordReset: (email: string, captchaToken?: string | null) => Promise<void>;
+  updatePassword: (password: string) => Promise<void>;
   signOut: () => Promise<void>;
   completeOnboarding: (organizationName: string) => Promise<void>;
   acceptInvitation: (token: string) => Promise<void>;
@@ -181,21 +183,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [hydrate]);
 
-  const signIn = useCallback(async (email: string, password: string) => {
+  const signIn = useCallback(async (email: string, password: string, captchaToken?: string | null) => {
     if (!supabase) throw missingConfigurationError();
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+      options: captchaToken ? { captchaToken } : undefined,
+    });
     if (error) throw translateAuthError(error);
   }, []);
 
-  const signUp = useCallback(async (name: string, email: string, password: string) => {
+  const signUp = useCallback(async (name: string, email: string, password: string, captchaToken?: string | null) => {
     if (!supabase) throw missingConfigurationError();
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { full_name: name.trim() } },
+      options: {
+        data: { full_name: name.trim() },
+        ...(captchaToken ? { captchaToken } : {}),
+      },
     });
     if (error) throw translateAuthError(error);
     return { needsEmailConfirmation: !data.session };
+  }, []);
+
+  const requestPasswordReset = useCallback(async (email: string, captchaToken?: string | null) => {
+    if (!supabase) throw missingConfigurationError();
+    const basePath = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`;
+    const redirectTo = new URL(`${basePath}redefinir-senha`, window.location.origin).toString();
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo,
+      ...(captchaToken ? { captchaToken } : {}),
+    });
+    if (error) throw translateAuthError(error);
+  }, []);
+
+  const updatePassword = useCallback(async (password: string) => {
+    if (!supabase) throw missingConfigurationError();
+    const { error } = await supabase.auth.updateUser({ password });
+    if (error) throw translateAuthError(error);
   }, []);
 
   const signOut = useCallback(async () => {
@@ -264,7 +290,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return createElement(
     AuthContext.Provider,
-     { value: { user, session, profile, loading, signIn, signUp, signOut, completeOnboarding, acceptInvitation, setAvatar, setName } },
+     { value: { user, session, profile, loading, signIn, signUp, requestPasswordReset, updatePassword, signOut, completeOnboarding, acceptInvitation, setAvatar, setName } },
     children,
   );
 }
