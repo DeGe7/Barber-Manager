@@ -63,6 +63,7 @@ O schema fonte está em `supabase/schema.sql` e deve ser aplicado no SQL Editor 
 pnpm run typecheck
 PORT=23945 BASE_PATH=/ pnpm --filter @workspace/barber-manager run build
 pnpm run e2e:typecheck
+pnpm run e2e:validate
 E2E_START_SERVER=true pnpm e2e
 ```
 
