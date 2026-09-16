@@ -1,5 +1,12 @@
-import { cleanupFixtures, isProvisioningEnabled, readFixtureManifest } from './provision';
+import {
+  cleanupFixtures,
+  isProvisioningEnabled,
+  readFixtureCleanupState,
+  readFixtureManifest,
+} from './provision';
 
 export default async function globalTeardown() {
-  if (isProvisioningEnabled() && readFixtureManifest()) await cleanupFixtures();
+  if (isProvisioningEnabled() && (readFixtureManifest() || readFixtureCleanupState())) {
+    await cleanupFixtures();
+  }
 }
