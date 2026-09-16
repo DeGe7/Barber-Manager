@@ -18,6 +18,18 @@ test.describe('autenticação e onboarding', () => {
     await expect(page).toHaveURL(/\/cadastro/);
   });
 
+  test('oferece recuperação de senha e protege a página de nova senha', async ({ page }) => {
+    await page.goto('/login');
+    await expect(page.getByRole('link', { name: 'Esqueci minha senha' })).toHaveAttribute('href', '/esqueci-senha');
+    await page.getByRole('link', { name: 'Esqueci minha senha' }).click();
+    await expect(page).toHaveURL(/\/esqueci-senha/);
+    await expect(page.getByRole('heading', { name: 'Recuperar acesso' })).toBeVisible();
+
+    await page.goto('/redefinir-senha');
+    await expect(page).toHaveURL(/\/redefinir-senha/);
+    await expect(page.getByText('Link inválido ou expirado.', { exact: true })).toBeVisible();
+  });
+
   test('shows the login form and rejects invalid credentials', async ({ page }) => {
     test.skip(!accounts.manager, 'Requires E2E_MANAGER_EMAIL and E2E_MANAGER_PASSWORD.');
     const account = requireAccount(accounts.manager, 'manager');
