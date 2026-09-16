@@ -39,7 +39,9 @@ export default function Configuracoes() {
     setRoleDrafts(config.roles);
   }, [config]);
 
-  const saveServices = () => { updateConfig({ services: serviceDrafts }); toast.success('Catálogo de serviços salvo.'); };
+  const saveServices = async () => {
+    if (await updateConfig({ services: serviceDrafts })) toast.success('Catálogo de serviços salvo.');
+  };
   const addService = () => {
     if (!newService.name.trim()) { toast.error('Informe o nome do serviço'); return; }
     const item: ServiceItem = {
@@ -70,7 +72,9 @@ export default function Configuracoes() {
     });
     setNewRole({ label: '', description: '' });
   };
-  const saveRoles = () => { updateConfig({ roles: roleDrafts }); toast.success('Cargos salvos.'); };
+  const saveRoles = async () => {
+    if (await updateConfig({ roles: roleDrafts })) toast.success('Cargos salvos.');
+  };
   const removeRole = (role: RoleItem) => {
     if (!window.confirm(`Excluir o cargo "${role.label}"?`)) return;
     setRoleDrafts(items => items.filter(item => item.id !== role.id));
@@ -85,16 +89,17 @@ export default function Configuracoes() {
           : role.permissions.filter(item => item !== permission),
       }));
   };
-  const addPayment = () => {
+  const addPayment = async () => {
     const key = newPayment.trim().toLowerCase().replace(/\s+/g, '-') as PayMethod;
     if (!key) return;
     if (config.paymentMethods.some(p => p.key === key)) { toast.error('Essa forma já existe'); return; }
-    updateConfig({ paymentMethods: [...config.paymentMethods, { key, label: newPayment.trim(), isActive: true }] });
-    setNewPayment('');
+    if (await updateConfig({ paymentMethods: [...config.paymentMethods, { key, label: newPayment.trim(), isActive: true }] })) {
+      setNewPayment('');
+    }
   };
-  const removePayment = (key: string, label: string) => {
+  const removePayment = async (key: string, label: string) => {
     if (!window.confirm(`Excluir a forma de pagamento "${label}"?`)) return;
-    updateConfig({ paymentMethods: config.paymentMethods.filter(item => item.key !== key) });
+    await updateConfig({ paymentMethods: config.paymentMethods.filter(item => item.key !== key) });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -120,7 +125,7 @@ export default function Configuracoes() {
         logo = logoData.signedUrl;
         nextLogoPath = path;
       }
-      updateConfig({ ...formData, logo, logoPath: nextLogoPath });
+      if (!await updateConfig({ ...formData, logo, logoPath: nextLogoPath })) return;
       setFormData(current => ({ ...current, logo }));
       setLogoPath(nextLogoPath);
       setLogoFile(null);
