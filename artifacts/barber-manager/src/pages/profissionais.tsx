@@ -30,6 +30,8 @@ export default function Profissionais() {
   const [inviteProfessional, setInviteProfessional] = useState<Professional | null>(null);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteSendLoading, setInviteSendLoading] = useState(false);
+  const [inviteConsent, setInviteConsent] = useState(false);
   const [generatedLink, setGeneratedLink] = useState('');
 
   const getInitials = (n: string) => n.split(' ').map(x => x[0]).join('').substring(0,2).toUpperCase();
@@ -65,35 +67,33 @@ export default function Profissionais() {
     setIsOpen(true);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.name) { toast.error('Nome obrigatório'); return; }
     const initials = form.initials || getInitials(form.name);
     
-    if (editingId) {
-      updateProfessional(editingId, { ...form, initials });
-      toast.success('Profissional atualizado');
-    } else {
-      addProfessional({ ...form, initials });
-      toast.success('Profissional adicionado');
-    }
+    const saved = editingId
+      ? await updateProfessional(editingId, { ...form, initials })
+      : await addProfessional({ ...form, initials });
+    if (!saved) return;
+    toast.success(editingId ? 'Profissional atualizado' : 'Profissional adicionado');
     setIsOpen(false);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     const hasAppts = appointments.some(a => a.professionalId === id);
     if (hasAppts) {
       toast.error('Em uso, não é possível excluir. Apenas desative-o.');
       return;
     }
-    removeProfessional(id);
-    toast.success('Excluído com sucesso');
+    if (await removeProfessional(id)) toast.success('Excluído com sucesso');
   };
 
   const openInvite = (professional: Professional) => {
     setInviteProfessional(professional);
     setInviteEmail('');
     setGeneratedLink('');
+    setInviteConsent(false);
     setInviteOpen(true);
   };
 
@@ -108,6 +108,10 @@ export default function Profissionais() {
     event.preventDefault();
     if (!inviteProfessional || !inviteEmail.trim()) {
       toast.error('Informe o e-mail do profissional.');
+      return;
+    }
+    if (!inviteConsent) {
+      toast.error('Confirme o consentimento antes de preparar o envio.');
       return;
     }
     setInviteLoading(true);
@@ -133,6 +137,44 @@ export default function Profissionais() {
     }
   };
 
+  const sendInvitationEmail = async () => {
+    if (!generatedLink || !inviteEmail.trim()) return;
+    if (!inviteConsent) {
+      toast.error('Confirme o consentimento antes de enviar.');
+      return;
+    }
+    const message = `Olá! Você foi convidado para a equipe do Barber Manager. Acesse este link para entrar: ${generatedLink}`;
+    setInviteSendLoading(true);
+    try {
+      const record = await api.communication.log({
+        channel: 'email',
+        kind: 'invitation',
+        recipientId: inviteProfessional?.id,
+        recipientName: inviteProfessional?.name || inviteEmail,
+        recipientAddress: inviteEmail.trim(),
+        message,
+        status: 'initiated',
+      });
+      const emailUrl = `mailto:${encodeURIComponent(inviteEmail.trim())}?subject=${encodeURIComponent('Convite para o Barber Manager')}&body=${encodeURIComponent(message)}`;
+      const opened = Boolean(window.open(emailUrl, '_blank', 'noopener,noreferrer'));
+      if (!opened) {
+        const reason = 'O navegador bloqueou a abertura do aplicativo de e-mail.';
+        try {
+          await api.communication.markFailed(record.id, reason);
+        } catch {
+          // O registro inicial preserva a tentativa mesmo se a atualização falhar.
+        }
+        toast.error('O e-mail foi bloqueado pelo navegador. Permita pop-ups e tente novamente.');
+        return;
+      }
+      toast.success('Aplicativo de e-mail aberto com o convite. Confirme o envio por lá.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Não foi possível registrar o envio do convite.');
+    } finally {
+      setInviteSendLoading(false);
+    }
+  };
+
   const revokeInvite = async (invitation: OrganizationInvitation) => {
     try {
       await api.invitations.revoke(invitation.id);
@@ -146,6 +188,7 @@ export default function Profissionais() {
   const resendInvite = (professional: Professional, invitation: OrganizationInvitation) => {
     setInviteProfessional(professional);
     setInviteEmail(invitation.email);
+    setInviteConsent(false);
     setGeneratedLink('');
     setInviteOpen(true);
   };
@@ -347,25 +390,29 @@ export default function Profissionais() {
                 <label htmlFor="invite-email" className="text-xs font-semibold text-muted-foreground uppercase">E-mail do profissional</label>
                 <input id="invite-email" type="email" required value={inviteEmail} onChange={event => setInviteEmail(event.target.value)} autoComplete="email" placeholder="profissional@email.com" className="mt-1 w-full rounded-lg border border-brand-border bg-brand-bg px-3 py-2.5 text-sm outline-none focus:ring-1 focus:ring-brand-gold" />
               </div>
+              <div className="rounded-lg border border-brand-border bg-brand-bg px-3 py-2.5">
+                <label className="flex gap-2 text-xs leading-5 text-muted-foreground">
+                  <input type="checkbox" checked={inviteConsent} onChange={event => setInviteConsent(event.target.checked)} className="mt-1 h-4 w-4 accent-brand-gold" />
+                  <span>Confirmo que o profissional autorizou o contato e que este convite deve ser enviado para o e-mail informado.</span>
+                </label>
+              </div>
               <button type="submit" disabled={inviteLoading} className="w-full rounded-lg bg-brand-gold py-3 font-bold text-brand-bg disabled:opacity-60">
                 {inviteLoading ? 'Criando convite...' : 'Gerar link de convite'}
               </button>
             </form>
           ) : (
             <div className="space-y-4 pt-4">
-              <div className="rounded-xl border border-success/30 bg-success/10 p-4 text-sm text-success">Convite pronto. Envie o link abaixo para o profissional.</div>
+               <div className="rounded-xl border border-success/30 bg-success/10 p-4 text-sm text-success">Convite pronto. Use o botão abaixo para abrir o e-mail já preenchido e confirme o envio no aplicativo.</div>
               <div className="flex items-center gap-2 rounded-lg border border-brand-border bg-brand-bg p-2">
                 <input readOnly value={generatedLink} aria-label="Link do convite" className="min-w-0 flex-1 bg-transparent px-2 text-xs text-muted-foreground outline-none" />
                 <button type="button" onClick={() => navigator.clipboard.writeText(generatedLink).then(() => toast.success('Link copiado.')).catch(() => toast.error('Não foi possível copiar o link.'))} className="rounded-lg bg-brand-gold p-2 text-brand-bg" aria-label="Copiar link do convite" title="Copiar link">
                   <Copy className="h-4 w-4" />
                 </button>
               </div>
-              <a
-                href={`mailto:${encodeURIComponent(inviteEmail)}?subject=${encodeURIComponent('Convite para o Barber Manager')}&body=${encodeURIComponent(`Olá! Você foi convidado para a equipe do Barber Manager. Acesse este link para entrar: ${generatedLink}`)}`}
-                className="flex w-full items-center justify-center gap-2 rounded-lg border border-brand-border py-3 text-sm font-semibold hover:border-brand-gold hover:text-brand-gold"
-              >
-                <Mail className="h-4 w-4" /> Abrir e-mail para enviar
-              </a>
+               <button type="button" onClick={sendInvitationEmail} disabled={inviteSendLoading || !inviteConsent} className="flex w-full items-center justify-center gap-2 rounded-lg border border-brand-border py-3 text-sm font-semibold hover:border-brand-gold hover:text-brand-gold disabled:opacity-50">
+                 <Mail className="h-4 w-4" /> {inviteSendLoading ? 'Abrindo e-mail...' : 'Enviar convite por e-mail'}
+               </button>
+               <p className="text-xs text-muted-foreground">A tentativa é registrada no histórico de envios da página Comunicação. O Barber Manager não consegue confirmar se o aplicativo concluiu o envio.</p>
               <button type="button" onClick={() => setInviteOpen(false)} className="w-full rounded-lg border border-brand-border py-3 text-sm font-semibold hover:border-brand-gold hover:text-brand-gold">Fechar</button>
             </div>
           )}
