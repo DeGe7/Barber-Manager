@@ -15,11 +15,10 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { Link } from 'wouter';
 import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
+  Cell,
+  Legend,
+  Pie,
+  PieChart,
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
@@ -31,6 +30,7 @@ export default function Dashboard() {
   const { profile } = useAuth();
   const ownProfile = Boolean(profile?.professionalId && profile.role !== 'gestor' && profile.role !== 'dev-admin');
   const [ownPeriod, setOwnPeriod] = useState<'semanal' | 'mensal'>('semanal');
+  const [revenuePeriod, setRevenuePeriod] = useState<'diaria' | 'semanal' | 'mensal'>('diaria');
 
   const today = formatDateKey();
   const periodStart = new Date();
@@ -61,11 +61,37 @@ export default function Dashboard() {
   
   const topProf = professionals.find(p => p.id === topProfId);
 
+  const revenuePeriodStart = new Date();
+  revenuePeriodStart.setHours(0, 0, 0, 0);
+  revenuePeriodStart.setDate(revenuePeriodStart.getDate() - (
+    revenuePeriod === 'diaria' ? 0 : revenuePeriod === 'semanal' ? 6 : 29
+  ));
+  const revenuePeriodEnd = parseDateKey(today);
+  const revenueAppointments = appointments.filter(a => {
+    if (a.status !== 'completed' && a.status !== 'confirmed') return false;
+    const date = parseDateKey(a.date);
+    return date >= revenuePeriodStart && date <= revenuePeriodEnd &&
+      (!ownProfile || a.professionalId === profile?.professionalId);
+  });
+  const revenueByProfessional: Record<string, number> = {};
+  revenueAppointments.forEach(a => {
+    revenueByProfessional[a.professionalId] = (revenueByProfessional[a.professionalId] || 0) + a.value + (a.tip || 0);
+  });
+
   const chartData = professionals.map(p => ({
-    name: p.initials,
+    name: p.name,
     fullName: p.name,
-    total: profRevenue[p.id] || 0,
+    total: revenueByProfessional[p.id] || 0,
   })).filter(d => d.total > 0).sort((a, b) => b.total - a.total);
+  const revenueTotal = chartData.reduce((sum, entry) => sum + entry.total, 0);
+  const formatPercentage = (value: number) =>
+    `${value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
+  const chartColors = ['hsl(var(--chart-1))', 'hsl(var(--chart-2))', 'hsl(var(--chart-3))', 'hsl(var(--chart-4))', 'hsl(var(--chart-5))'];
+  const revenuePeriodLabels = {
+    diaria: 'Diária',
+    semanal: 'Semanal',
+    mensal: 'Mensal',
+  } as const;
 
   const lowStock = ownProfile ? 0 : products.filter(p => productStatus(p) === 'low').length;
   const critStock = ownProfile ? 0 : products.filter(p => productStatus(p) === 'critical').length;
@@ -247,30 +273,85 @@ export default function Dashboard() {
             )}
           </div>
 
-          {!ownProfile && <div className="bg-brand-surface border border-brand-border rounded-2xl p-6">
-            <h3 className="text-lg font-bold text-foreground mb-4">Faturamento por Profissional (Hoje)</h3>
+          {!ownProfile && <div data-testid="professional-revenue-card" className="bg-brand-surface border border-brand-border rounded-2xl p-6">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <h3 className="text-lg font-bold text-foreground">Faturamento por Profissional</h3>
+              <div className="flex items-center rounded-lg border border-brand-border bg-brand-bg p-1" role="group" aria-label="Período do faturamento por profissional">
+                {(Object.keys(revenuePeriodLabels) as Array<keyof typeof revenuePeriodLabels>).map(period => (
+                  <button
+                    key={period}
+                    type="button"
+                    aria-pressed={revenuePeriod === period}
+                    onClick={() => setRevenuePeriod(period)}
+                    className={`rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors ${
+                      revenuePeriod === period
+                        ? 'bg-brand-gold text-brand-bg'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {revenuePeriodLabels[period]}
+                  </button>
+                ))}
+              </div>
+            </div>
             {chartData.length === 0 ? (
                <div className="text-center py-12 text-muted-foreground">
                 <Trophy className="w-12 h-12 mx-auto mb-4 opacity-30" />
-                <p className="text-sm">Nenhum faturamento registrado hoje</p>
+                 <p className="text-sm">Nenhum faturamento registrado no período selecionado</p>
               </div>
             ) : (
-              <div className="h-64 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--brand-border))" vertical={false} />
-                    <XAxis dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
-                    <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(val) => `R$ ${val}`} />
-                    <Tooltip 
-                      contentStyle={{ backgroundColor: 'hsl(var(--brand-surface))', borderColor: 'hsl(var(--brand-border))', color: 'hsl(var(--foreground))' }}
-                      itemStyle={{ color: 'hsl(var(--brand-gold))' }}
-                      formatter={(val: number) => [brl(val), 'Faturamento']}
-                      labelStyle={{ color: 'hsl(var(--muted-foreground))' }}
-                    />
-                    <Bar dataKey="total" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
+               <>
+                 <div className="h-72 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                     <PieChart>
+                       <Pie
+                         data={chartData}
+                         dataKey="total"
+                         nameKey="name"
+                         cx="50%"
+                         cy="44%"
+                         outerRadius="68%"
+                         paddingAngle={2}
+                         stroke="hsl(var(--brand-surface))"
+                         strokeWidth={2}
+                       >
+                         {chartData.map((entry, index) => (
+                           <Cell key={`revenue-cell-${entry.name}`} fill={chartColors[index % chartColors.length]} />
+                         ))}
+                       </Pie>
+                       <Tooltip
+                        contentStyle={{ backgroundColor: 'hsl(var(--brand-surface))', borderColor: 'hsl(var(--brand-border))', color: 'hsl(var(--foreground))' }}
+                        formatter={(val: number) => [brl(val), 'Faturamento']}
+                        labelStyle={{ color: 'hsl(var(--muted-foreground))' }}
+                      />
+                       <Legend
+                         verticalAlign="bottom"
+                         iconType="circle"
+                         wrapperStyle={{ color: 'hsl(var(--muted-foreground))', fontSize: 12 }}
+                       />
+                     </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                 <div
+                   className="mt-4 grid gap-2 border-t border-brand-border pt-4"
+                   aria-label="Detalhamento do faturamento por profissional"
+                   role="list"
+                 >
+                   {chartData.map(entry => (
+                     <div
+                       key={`revenue-detail-${entry.name}`}
+                       data-testid="revenue-professional-row"
+                       className="flex items-center justify-between gap-4 text-sm"
+                       role="listitem"
+                     >
+                       <span className="min-w-0 truncate text-muted-foreground">{entry.fullName}</span>
+                       <span className="shrink-0 font-semibold text-foreground">
+                         {brl(entry.total)} · {formatPercentage((entry.total / revenueTotal) * 100)}
+                       </span>
+                     </div>
+                   ))}
+                 </div>
+               </>
             )}
           </div>}
         </div>

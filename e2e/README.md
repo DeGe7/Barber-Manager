@@ -17,6 +17,13 @@ To let Playwright start a local Vite server instead:
 E2E_START_SERVER=true pnpm e2e
 ```
 
+With the dedicated Supabase test project configured in Replit Secrets, run the
+fully provisioned isolated suite with:
+
+```bash
+pnpm e2e:isolated
+```
+
 ## Automatic disposable environment
 
 For a complete matrix without manually prepared accounts, point the suite at a
@@ -46,6 +53,11 @@ The CI workflow runs this complete authenticated matrix only when the three
 `E2E_PROVISION=true` and `E2E_START_SERVER=true`, and passes only the dedicated
 test-project URL and keys to the disposable environment. If the secrets are
 missing, the authenticated E2E job is skipped.
+
+Every CI run uploads the Playwright HTML report, traces, screenshots, videos,
+and other files under `playwright-report/` or `test-results/` as the
+`e2e-failure-artifacts` artifact. The artifact is retained for 14 days,
+including when the matrix fails.
 
 ## Accounts
 

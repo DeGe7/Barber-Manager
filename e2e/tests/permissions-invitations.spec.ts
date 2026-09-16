@@ -9,6 +9,41 @@ import {
 } from '../fixtures';
 
 test.describe('visibilidade e restrições por papel', () => {
+  test('não expõe clientes de outra organização', async ({ page }) => {
+    test.skip(!accounts.manager || !accounts.onboarding, 'Requires manager and onboarding E2E accounts.');
+    const onboarding = requireAccount(accounts.onboarding, 'onboarding');
+    const manager = requireAccount(accounts.manager, 'manager');
+    const privateClient = `Cliente organização isolada ${Date.now().toString(36)}`;
+
+    await loginAs(page, onboarding);
+    await page.goto('/');
+    const onboardingHeading = page.getByRole('heading', { name: 'Configure seu estabelecimento', exact: true });
+    await Promise.race([
+      onboardingHeading.waitFor({ state: 'visible', timeout: 10_000 }),
+      page.locator('main h2').first().waitFor({ state: 'visible', timeout: 10_000 }),
+    ]);
+    const needsOnboarding = await onboardingHeading.isVisible().catch(() => false);
+    if (needsOnboarding) {
+      await page.getByLabel('Nome do estabelecimento').fill(`Organização isolada ${Date.now().toString(36)}`);
+      await page.getByRole('button', { name: 'Continuar', exact: true }).click();
+      await expect(page).not.toHaveURL(/\/onboarding/, { timeout: 20_000 });
+      await page.reload();
+    }
+    await openModule(page, '/clientes', 'Clientes');
+    await page.getByRole('button', { name: 'Novo Cliente', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.locator('input').nth(0).fill(privateClient);
+    await dialog.locator('input').nth(1).fill('11977776666');
+    await dialog.locator('input').nth(3).fill(`isolated-${Date.now().toString(36)}@example.com`);
+    await dialog.getByRole('button', { name: 'Salvar Cliente', exact: true }).click();
+    await expect(page.locator('tbody tr').filter({ hasText: privateClient })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Sair do sistema', exact: true }).click();
+    await loginAs(page, manager);
+    await openModule(page, '/clientes', 'Clientes');
+    await expect(page.getByText(privateClient, { exact: true })).toHaveCount(0);
+  });
+
   test('gestor vê todos os módulos e pode abrir configurações', async ({ page }) => {
     test.skip(!accounts.manager, 'Requires E2E_MANAGER_EMAIL and E2E_MANAGER_PASSWORD.');
     await loginAs(page, requireAccount(accounts.manager, 'manager'));
@@ -28,6 +63,63 @@ test.describe('visibilidade e restrições por papel', () => {
     await openModule(page, '/configuracoes/acesso', 'Configurações');
     await expect(page.getByRole('button', { name: 'Salvar permissões', exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Papéis e Acesso', exact: true })).toBeVisible();
+  });
+
+  test('gestor vê valores e percentuais corretos em cada período', async ({ page }) => {
+    test.skip(
+      !accounts.manager || process.env.E2E_PROVISION !== 'true',
+      'Requires the provisioned manager account and revenue fixtures.',
+    );
+    await loginAs(page, requireAccount(accounts.manager, 'manager'));
+    await openModule(page, '/dashboard', 'Visão geral');
+
+    const card = page.getByTestId('professional-revenue-card');
+    await expect(card).toBeVisible();
+
+    const expectedByPeriod = {
+      Diária: [
+        ['Profissional operacional E2E', '110,00', '68,75%'],
+        ['Profissional customizado E2E', '50,00', '31,25%'],
+      ],
+      Semanal: [
+        ['Profissional operacional E2E', '310,00', '86,11%'],
+        ['Profissional customizado E2E', '50,00', '13,89%'],
+      ],
+      Mensal: [
+        ['Profissional customizado E2E', '350,00', '53,03%'],
+        ['Profissional operacional E2E', '310,00', '46,97%'],
+      ],
+    } as const;
+
+    for (const [label, expectedRows] of Object.entries(expectedByPeriod)) {
+      const button = page.getByRole('button', { name: label, exact: true });
+      await button.click();
+      await expect(button).toHaveAttribute('aria-pressed', 'true');
+
+      for (const [professional, value, percentage] of expectedRows) {
+        const row = card.getByTestId('revenue-professional-row').filter({ hasText: professional });
+        await expect(row).toContainText(new RegExp(`R\\$\\s*${value}`));
+        await expect(row).toContainText(percentage);
+      }
+    }
+  });
+
+  test('gestor vê o estado vazio quando não há faturamento no período', async ({ page }) => {
+    test.skip(!accounts.manager, 'Requires E2E_MANAGER_EMAIL and E2E_MANAGER_PASSWORD.');
+    await page.route('**/rest/v1/appointments**', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: '[]',
+      });
+    });
+
+    await loginAs(page, requireAccount(accounts.manager, 'manager'));
+    await openModule(page, '/dashboard', 'Visão geral');
+
+    const card = page.getByTestId('professional-revenue-card');
+    await expect(card.getByText('Nenhum faturamento registrado no período selecionado')).toBeVisible();
+    await expect(card.getByTestId('revenue-professional-row')).toHaveCount(0);
   });
 
   test('profissional operacional vê apenas a operação autorizada e recebe acesso restrito', async ({ page }) => {

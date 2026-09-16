@@ -1,25 +1,42 @@
 import { useState } from 'react';
-import { useStore, brl, ExpenseCategory, EXPENSE_CATEGORIES } from '@/data/store';
+import { useStore, brl, ExpenseCategory, EXPENSE_CATEGORIES, PAY_LABELS, PayMethod } from '@/data/store';
+import { useAuth } from '@/auth/auth';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
 import { 
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, 
   Tooltip, ResponsiveContainer
 } from 'recharts';
-import { ArrowUpRight, ArrowDownRight, Trash2 } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, History, Pencil, Trash2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { formatDateKey, formatMonthKey, parseDateKey } from '@/data/date';
 
 const TABS = ['Visão Geral', 'Por Profissional', 'Serviços', 'Produtos'] as const;
 type Period = 'anual' | 'semestral' | 'trimestral' | 'mensal' | 'semanal';
+const PAYMENT_METHODS: PayMethod[] = ['debito', 'credito', 'pix', 'dinheiro'];
+const PAYMENT_CARD_STYLES: Record<PayMethod, string> = {
+  debito: 'border-sky-500/30 bg-sky-500/5',
+  credito: 'border-violet-500/30 bg-violet-500/5',
+  pix: 'border-emerald-500/30 bg-emerald-500/5',
+  dinheiro: 'border-amber-500/30 bg-amber-500/5',
+};
+const PAYMENT_VALUE_STYLES: Record<PayMethod, string> = {
+  debito: 'text-sky-400',
+  credito: 'text-violet-400',
+  pix: 'text-emerald-400',
+  dinheiro: 'text-amber-400',
+};
 
 export default function Financeiro() {
-  const { expenses, incomes, appointments, professionals, products, prothesisSales, mentoriaSessions, addExpense, removeExpense, addIncome, removeIncome, isLoading } = useStore();
+  const { profile } = useAuth();
+  const { expenses, incomes, appointments, professionals, products, prothesisSales, mentoriaSessions, addExpense, updateExpense, removeExpense, addIncome, updateIncome, removeIncome, financeHistory, refreshFinanceHistory, isLoading } = useStore();
+  const isManager = profile?.role === 'gestor' || profile?.role === 'dev-admin';
 
   const [activeTab, setActiveTab] = useState<typeof TABS[number]>('Visão Geral');
   const [selectedMonth, setSelectedMonth] = useState(formatMonthKey());
   const [period, setPeriod] = useState<Period>('mensal');
+  const [historyOpen, setHistoryOpen] = useState(false);
   
   const year = parseInt(selectedMonth.split('-')[0]);
   const month = parseInt(selectedMonth.split('-')[1]);
@@ -56,6 +73,39 @@ export default function Financeiro() {
   const totalIn = apptRevenue + prothesisRevenue + mentoriaRevenue + manualRevenue;
   const totalOut = mExpenses.reduce((s, e) => s + e.amount, 0);
   const result = totalIn - totalOut;
+
+  const paymentTotals = PAYMENT_METHODS.reduce<Record<PayMethod, number>>((totals, method) => {
+    totals[method] = 0;
+    return totals;
+  }, {} as Record<PayMethod, number>);
+  const expenseTotals = PAYMENT_METHODS.reduce<Record<PayMethod, number>>((totals, method) => {
+    totals[method] = 0;
+    return totals;
+  }, {} as Record<PayMethod, number>);
+  let expensesWithoutPaymentMethod = 0;
+  mAppts.forEach(appointment => {
+    const payments = appointment.paymentSplits?.length
+      ? appointment.paymentSplits
+      : [{ method: appointment.payMethod, amount: appointment.value + (appointment.tip || 0) }];
+    payments.forEach(payment => {
+      if (payment.method in paymentTotals) paymentTotals[payment.method] += Number(payment.amount) || 0;
+    });
+  });
+  mProthesis.forEach(sale => {
+    if (sale.payMethod1) {
+      const paidAmount = sale.installments > 0
+        ? (sale.value / sale.installments) * sale.installmentsPaid
+        : 0;
+      paymentTotals[sale.payMethod1] += paidAmount;
+    }
+  });
+  mExpenses.forEach(expense => {
+    if (expense.paymentMethod && expense.paymentMethod in expenseTotals) {
+      expenseTotals[expense.paymentMethod] += expense.amount;
+    } else {
+      expensesWithoutPaymentMethod += expense.amount;
+    }
+  });
 
   const periodRevenue = (dateMatch: (d: string) => boolean) => ({
     appt: appointments.filter(a => dateMatch(a.date) && (a.status === 'confirmed' || a.status === 'completed')).reduce((s, a) => s + a.value + (a.tip || 0), 0),
@@ -136,19 +186,73 @@ export default function Financeiro() {
   });
 
   const [expOpen, setExpOpen] = useState(false);
-  const [expForm, setExpForm] = useState({ date: formatDateKey(), desc: '', amount: '', cat: 'Outros' as ExpenseCategory });
-  const handleExp = (e: React.FormEvent) => {
+  const [expForm, setExpForm] = useState({ date: formatDateKey(), desc: '', amount: '', cat: 'Outros' as ExpenseCategory, paymentMethod: '' as PayMethod | '' });
+  const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
+  const [isSavingExpense, setIsSavingExpense] = useState(false);
+  const handleExp = async (e: React.FormEvent) => {
     e.preventDefault();
-    addExpense({ date: expForm.date, description: expForm.desc, amount: Number(expForm.amount), category: expForm.cat });
-    toast.success('Despesa adicionada'); setExpOpen(false); setExpForm({ ...expForm, desc: '', amount: '' });
+    if (!expForm.paymentMethod) {
+      toast.error('Selecione a forma de pagamento da despesa');
+      return;
+    }
+    setIsSavingExpense(true);
+    try {
+      const payload = { date: expForm.date, description: expForm.desc, amount: Number(expForm.amount), category: expForm.cat, paymentMethod: expForm.paymentMethod };
+      const saved = editingExpenseId ? await updateExpense(editingExpenseId, payload) : await addExpense(payload);
+      if (saved) {
+        toast.success(editingExpenseId ? 'Despesa atualizada' : 'Despesa adicionada');
+        setExpOpen(false);
+        setEditingExpenseId(null);
+        setExpForm({ date: formatDateKey(), desc: '', amount: '', cat: 'Outros', paymentMethod: '' });
+      }
+    } finally {
+      setIsSavingExpense(false);
+    }
   };
 
   const [incOpen, setIncOpen] = useState(false);
   const [incForm, setIncForm] = useState({ date: formatDateKey(), desc: '', amount: '' });
-  const handleInc = (e: React.FormEvent) => {
+  const [editingIncomeId, setEditingIncomeId] = useState<string | null>(null);
+  const [isSavingIncome, setIsSavingIncome] = useState(false);
+  const handleInc = async (e: React.FormEvent) => {
     e.preventDefault();
-    addIncome({ date: incForm.date, description: incForm.desc, amount: Number(incForm.amount) });
-    toast.success('Receita adicionada'); setIncOpen(false); setIncForm({ ...incForm, desc: '', amount: '' });
+    setIsSavingIncome(true);
+    try {
+      const payload = { date: incForm.date, description: incForm.desc, amount: Number(incForm.amount) };
+      const saved = editingIncomeId ? await updateIncome(editingIncomeId, payload) : await addIncome(payload);
+      if (!saved) return;
+      toast.success(editingIncomeId ? 'Receita atualizada' : 'Receita adicionada');
+      setIncOpen(false);
+      setEditingIncomeId(null);
+      setIncForm({ date: formatDateKey(), desc: '', amount: '' });
+    } finally {
+      setIsSavingIncome(false);
+    }
+  };
+
+  const startIncomeEdit = (income: typeof incomes[number]) => {
+    setEditingIncomeId(income.id);
+    setIncForm({ date: income.date, desc: income.description, amount: String(income.amount) });
+    setIncOpen(true);
+  };
+
+  const startExpenseEdit = (expense: typeof expenses[number]) => {
+    setEditingExpenseId(expense.id);
+    setExpForm({ date: expense.date, desc: expense.description, amount: String(expense.amount), cat: expense.category, paymentMethod: expense.paymentMethod ?? '' });
+    setExpOpen(true);
+  };
+
+  const handleRemoveIncome = async (id: string) => {
+    if (await removeIncome(id)) toast.success('Removido');
+  };
+
+  const handleRemoveExpense = async (id: string) => {
+    if (await removeExpense(id)) toast.success('Removido');
+  };
+
+  const openFinanceHistory = async () => {
+    await refreshFinanceHistory();
+    setHistoryOpen(true);
   };
 
   return (
@@ -196,6 +300,37 @@ export default function Financeiro() {
                 </div>
               </div>
 
+              <div className="bg-brand-surface border border-brand-border rounded-2xl p-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-5">
+                  <div>
+                    <h3 className="text-lg font-bold text-foreground">Entradas e saídas por forma de pagamento</h3>
+                    <p className="text-xs text-muted-foreground mt-1">Movimentações financeiras no período selecionado</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                  {PAYMENT_METHODS.map(method => (
+                    <div key={method} className={`rounded-xl border p-4 ${PAYMENT_CARD_STYLES[method]}`}>
+                      <p className="text-xs font-semibold uppercase text-muted-foreground">{PAY_LABELS[method]}</p>
+                      <div className="mt-3 space-y-1.5 text-sm">
+                        <p className="flex items-center justify-between gap-2">
+                          <span className="text-muted-foreground">Entrou</span>
+                          <strong className={PAYMENT_VALUE_STYLES[method]}>{brl(paymentTotals[method])}</strong>
+                        </p>
+                        <p className="flex items-center justify-between gap-2">
+                          <span className="text-muted-foreground">Saiu</span>
+                          <strong className="text-destructive">{brl(expenseTotals[method])}</strong>
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {expensesWithoutPaymentMethod > 0 && (
+                  <p className="mt-3 text-xs text-warning">
+                    {brl(expensesWithoutPaymentMethod)} em despesas antigas sem forma de pagamento. Edite-as para classificá-las.
+                  </p>
+                )}
+              </div>
+
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2 bg-brand-surface border border-brand-border rounded-2xl p-6">
                   <h3 className="text-lg font-bold text-foreground mb-4">Fluxo Diário ({months[month-1]})</h3>
@@ -216,32 +351,93 @@ export default function Financeiro() {
                 <div className="bg-brand-surface border border-brand-border rounded-2xl p-6 flex flex-col h-[400px]">
                   <div className="flex justify-between items-center mb-4">
                     <h3 className="text-lg font-bold text-foreground">Movimentações</h3>
-                    <div className="flex gap-2">
-                      <Dialog open={incOpen} onOpenChange={setIncOpen}>
+                     <div className="flex gap-2">
+                       {isManager && (
+                         <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+                           <button aria-label="Ver histórico financeiro" onClick={openFinanceHistory} className="h-8 px-2 flex items-center gap-1.5 rounded-lg bg-brand-gold/10 text-brand-gold hover:bg-brand-gold/20 transition-colors text-xs font-semibold">
+                             <History className="w-4 h-4" /> Histórico
+                           </button>
+                           <DialogContent className="bg-brand-surface border-brand-border text-foreground max-w-3xl">
+                             <DialogHeader>
+                               <DialogTitle>Histórico de alterações financeiras</DialogTitle>
+                             </DialogHeader>
+                             <p className="text-sm text-muted-foreground">
+                               Consulta somente leitura das alterações feitas em receitas e despesas manuais.
+                             </p>
+                             <div className="space-y-3">
+                               {financeHistory.length === 0 ? (
+                                 <p className="text-sm text-muted-foreground text-center py-8">Nenhuma alteração registrada.</p>
+                               ) : financeHistory.map(change => {
+                                 const values = change.entryType === 'expense'
+                                   ? `${change.newValues.description} · ${change.newValues.category || 'Outros'}`
+                                   : change.newValues.description;
+                                 return (
+                                   <div key={change.id} className="rounded-lg border border-brand-border bg-brand-bg p-3 text-sm">
+                                     <div className="flex flex-wrap items-center justify-between gap-2">
+                                       <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${change.entryType === 'income' ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'}`}>
+                                         {change.entryType === 'income' ? 'Receita' : 'Despesa'}
+                                       </span>
+                                       <span className="text-xs text-muted-foreground">
+                                         {change.changedByName} · {new Date(change.changedAt).toLocaleString('pt-BR')}
+                                       </span>
+                                     </div>
+                                     <p className="mt-2 font-medium">{values}</p>
+                                     <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                                       <div className="rounded border border-brand-border/70 p-2">
+                                         <p className="text-muted-foreground mb-1">Antes</p>
+                                         <p>{change.previousValues.date.split('-').reverse().join('/')} · {brl(change.previousValues.amount)}</p>
+                                         <p className="truncate">{change.previousValues.description}{change.entryType === 'expense' && change.previousValues.category ? ` · ${change.previousValues.category}` : ''}</p>
+                                       </div>
+                                       <div className="rounded border border-brand-gold/30 p-2">
+                                         <p className="text-brand-gold mb-1">Depois</p>
+                                         <p>{change.newValues.date.split('-').reverse().join('/')} · {brl(change.newValues.amount)}</p>
+                                         <p className="truncate">{change.newValues.description}{change.entryType === 'expense' && change.newValues.category ? ` · ${change.newValues.category}` : ''}</p>
+                                       </div>
+                                     </div>
+                                   </div>
+                                 );
+                               })}
+                             </div>
+                           </DialogContent>
+                         </Dialog>
+                       )}
+                      <Dialog open={incOpen} onOpenChange={open => {
+                        setIncOpen(open);
+                        if (!open) {
+                          setEditingIncomeId(null);
+                          setIncForm({ date: formatDateKey(), desc: '', amount: '' });
+                        }
+                      }}>
                         <DialogTrigger asChild><button aria-label="Lançar receita manual" className="w-8 h-8 flex justify-center items-center rounded-lg bg-success/10 text-success hover:bg-success/20 transition-colors"><ArrowUpRight className="w-4 h-4"/></button></DialogTrigger>
                         <DialogContent className="bg-brand-surface border-brand-border text-foreground">
-                          <DialogHeader><DialogTitle>Lançar Receita Manual</DialogTitle></DialogHeader>
-                          <form onSubmit={handleInc} className="space-y-4"><input type="date" required value={incForm.date} onChange={e=>setIncForm(f=>({...f,date:e.target.value}))} className="w-full bg-brand-bg border border-brand-border rounded p-2" /><input type="text" required placeholder="Descrição" value={incForm.desc} onChange={e=>setIncForm(f=>({...f,desc:e.target.value}))} className="w-full bg-brand-bg border border-brand-border rounded p-2" /><input type="number" step="0.01" required placeholder="Valor" value={incForm.amount} onChange={e=>setIncForm(f=>({...f,amount:e.target.value}))} className="w-full bg-brand-bg border border-brand-border rounded p-2" /><button type="submit" className="w-full bg-success text-white py-2 rounded font-bold">Salvar</button></form>
+                          <DialogHeader><DialogTitle>{editingIncomeId ? 'Editar Receita Manual' : 'Lançar Receita Manual'}</DialogTitle></DialogHeader>
+                          <form onSubmit={handleInc} className="space-y-4"><input aria-label="Data da receita" type="date" required value={incForm.date} onChange={e=>setIncForm(f=>({...f,date:e.target.value}))} className="w-full bg-brand-bg border border-brand-border rounded p-2" /><input aria-label="Descrição da receita" type="text" required placeholder="Descrição" value={incForm.desc} onChange={e=>setIncForm(f=>({...f,desc:e.target.value}))} className="w-full bg-brand-bg border border-brand-border rounded p-2" /><input aria-label="Valor da receita" type="number" step="0.01" required placeholder="Valor" value={incForm.amount} onChange={e=>setIncForm(f=>({...f,amount:e.target.value}))} className="w-full bg-brand-bg border border-brand-border rounded p-2" /><button type="submit" disabled={isSavingIncome} className="w-full bg-success text-white py-2 rounded font-bold disabled:opacity-60">{isSavingIncome ? 'Salvando...' : editingIncomeId ? 'Salvar alterações' : 'Salvar'}</button></form>
                         </DialogContent>
                       </Dialog>
-                      <Dialog open={expOpen} onOpenChange={setExpOpen}>
+                      <Dialog open={expOpen} onOpenChange={open => {
+                        setExpOpen(open);
+                        if (!open) {
+                          setEditingExpenseId(null);
+                           setExpForm({ date: formatDateKey(), desc: '', amount: '', cat: 'Outros', paymentMethod: '' });
+                        }
+                      }}>
                         <DialogTrigger asChild><button aria-label="Lançar despesa" className="w-8 h-8 flex justify-center items-center rounded-lg bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors"><ArrowDownRight className="w-4 h-4"/></button></DialogTrigger>
                         <DialogContent className="bg-brand-surface border-brand-border text-foreground">
-                          <DialogHeader><DialogTitle>Lançar Despesa</DialogTitle></DialogHeader>
-                          <form onSubmit={handleExp} className="space-y-4"><input type="date" required value={expForm.date} onChange={e=>setExpForm(f=>({...f,date:e.target.value}))} className="w-full bg-brand-bg border border-brand-border rounded p-2" /><select value={expForm.cat} onChange={e=>setExpForm(f=>({...f,cat:e.target.value as any}))} className="w-full bg-brand-bg border border-brand-border rounded p-2">{EXPENSE_CATEGORIES.map(c=><option key={c}>{c}</option>)}</select><input type="text" required placeholder="Descrição" value={expForm.desc} onChange={e=>setExpForm(f=>({...f,desc:e.target.value}))} className="w-full bg-brand-bg border border-brand-border rounded p-2" /><input type="number" step="0.01" required placeholder="Valor" value={expForm.amount} onChange={e=>setExpForm(f=>({...f,amount:e.target.value}))} className="w-full bg-brand-bg border border-brand-border rounded p-2" /><button type="submit" className="w-full bg-destructive text-white py-2 rounded font-bold">Salvar</button></form>
+                          <DialogHeader><DialogTitle>{editingExpenseId ? 'Editar Despesa' : 'Lançar Despesa'}</DialogTitle></DialogHeader>
+                           <form onSubmit={handleExp} className="space-y-4"><input aria-label="Data da despesa" type="date" required value={expForm.date} onChange={e=>setExpForm(f=>({...f,date:e.target.value}))} className="w-full bg-brand-bg border border-brand-border rounded p-2" /><select aria-label="Categoria da despesa" value={expForm.cat} onChange={e=>setExpForm(f=>({...f,cat:e.target.value as ExpenseCategory}))} className="w-full bg-brand-bg border border-brand-border rounded p-2">{EXPENSE_CATEGORIES.map(c=><option key={c}>{c}</option>)}</select><select aria-label="Forma de pagamento da despesa" required value={expForm.paymentMethod} onChange={e=>setExpForm(f=>({...f,paymentMethod:e.target.value as PayMethod}))} className="w-full bg-brand-bg border border-brand-border rounded p-2"><option value="">Forma de pagamento</option>{PAYMENT_METHODS.map(method=><option key={method} value={method}>{PAY_LABELS[method]}</option>)}</select><input aria-label="Descrição da despesa" type="text" required placeholder="Descrição" value={expForm.desc} onChange={e=>setExpForm(f=>({...f,desc:e.target.value}))} className="w-full bg-brand-bg border border-brand-border rounded p-2" /><input aria-label="Valor da despesa" type="number" step="0.01" required placeholder="Valor" value={expForm.amount} onChange={e=>setExpForm(f=>({...f,amount:e.target.value}))} className="w-full bg-brand-bg border border-brand-border rounded p-2" /><button type="submit" disabled={isSavingExpense} className="w-full bg-destructive text-white py-2 rounded font-bold disabled:opacity-60">{isSavingExpense ? 'Salvando...' : editingExpenseId ? 'Salvar alterações' : 'Salvar'}</button></form>
                         </DialogContent>
                       </Dialog>
                     </div>
                   </div>
                   <div className="flex-1 overflow-y-auto space-y-2 pr-2">
                     {(() => {
-                      type FeedItem = { id: string; date: string; label: string; description: string; amount: number; sign: '+' | '-'; canDelete: boolean; onDelete?: () => void };
+                       type FeedItem = { id: string; date: string; label: string; description: string; amount: number; sign: '+' | '-'; canDelete: boolean; onDelete?: () => void; onEdit?: () => void };
                       const feed: FeedItem[] = [
                         ...mAppts.map(a => ({ id: a.id, date: a.date, label: 'Agendamento', description: `${a.client} — ${a.service}`, amount: a.value + (a.tip || 0), sign: '+' as const, canDelete: false })),
                         ...mProthesis.map(p => ({ id: p.id, date: p.date, label: 'Prótese', description: `${p.client} (${p.installmentsPaid}/${p.installments} parcelas)`, amount: (p.installmentsPaid / p.installments) * p.value, sign: '+' as const, canDelete: false })),
                         ...mMentoria.map(m => ({ id: m.id, date: m.date, label: 'Mentoria', description: m.client, amount: m.value, sign: '+' as const, canDelete: false })),
-                        ...mIncomes.map(i => ({ id: i.id, date: i.date, label: 'Manual', description: i.description, amount: i.amount, sign: '+' as const, canDelete: true, onDelete: () => { removeIncome(i.id); toast.success('Removido'); } })),
-                        ...mExpenses.map(e => ({ id: e.id, date: e.date, label: 'Despesa', description: `${e.description} · ${e.category}`, amount: e.amount, sign: '-' as const, canDelete: true, onDelete: () => { removeExpense(e.id); toast.success('Removido'); } })),
+                         ...mIncomes.map(i => ({ id: i.id, date: i.date, label: 'Manual', description: i.description, amount: i.amount, sign: '+' as const, canDelete: true, onDelete: () => handleRemoveIncome(i.id), onEdit: () => startIncomeEdit(i) })),
+                          ...mExpenses.map(e => ({ id: e.id, date: e.date, label: 'Despesa', description: `${e.description} · ${e.category}${e.paymentMethod ? ` · ${PAY_LABELS[e.paymentMethod]}` : ''}`, amount: e.amount, sign: '-' as const, canDelete: true, onDelete: () => handleRemoveExpense(e.id), onEdit: () => startExpenseEdit(e) })),
                       ].sort((a, b) => b.date.localeCompare(a.date));
                       if (feed.length === 0) return <p className="text-sm text-muted-foreground text-center py-8">Nenhuma movimentação</p>;
                       return feed.map(item => (
@@ -255,9 +451,12 @@ export default function Financeiro() {
                           </div>
                           <div className="flex items-center gap-2 ml-2 shrink-0">
                             <span className={`font-bold text-sm ${item.sign === '+' ? 'text-success' : 'text-destructive'}`}>{item.sign}{brl(item.amount)}</span>
-                            {item.canDelete && item.onDelete && (
-                              <AlertDialog><AlertDialogTrigger asChild><button aria-label="Excluir lançamento" className="opacity-0 group-hover:opacity-100 text-destructive hover:bg-destructive/20 p-1 rounded transition-all"><Trash2 className="w-3 h-3"/></button></AlertDialogTrigger><AlertDialogContent className="bg-brand-surface border-brand-border text-foreground"><AlertDialogHeader><AlertDialogTitle>Excluir?</AlertDialogTitle><AlertDialogDescription>Remover este lançamento?</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel className="bg-brand-bg border-brand-border">Cancelar</AlertDialogCancel><AlertDialogAction className="bg-destructive text-white" onClick={item.onDelete}>Excluir</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
-                            )}
+                             {item.canDelete && item.onEdit && (
+                               <button aria-label="Editar lançamento" onClick={item.onEdit} className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:bg-brand-border/50 p-1 rounded transition-all"><Pencil className="w-3 h-3"/></button>
+                             )}
+                             {item.canDelete && item.onDelete && (
+                               <AlertDialog><AlertDialogTrigger asChild><button aria-label="Excluir lançamento" className="opacity-0 group-hover:opacity-100 text-destructive hover:bg-destructive/20 p-1 rounded transition-all"><Trash2 className="w-3 h-3"/></button></AlertDialogTrigger><AlertDialogContent className="bg-brand-surface border-brand-border text-foreground"><AlertDialogHeader><AlertDialogTitle>Excluir?</AlertDialogTitle><AlertDialogDescription>Remover este lançamento?</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel className="bg-brand-bg border-brand-border">Cancelar</AlertDialogCancel><AlertDialogAction className="bg-destructive text-white" onClick={item.onDelete}>Excluir</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+                             )}
                           </div>
                         </div>
                       ));

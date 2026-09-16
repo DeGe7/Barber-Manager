@@ -31,15 +31,15 @@ export default function Vendas() {
     return { ...p, daysSince };
   }).filter(p => p.daysSince >= 10).sort((a,b) => b.daysSince - a.daysSince);
 
-  const handleProthesisSubmit = (e: React.FormEvent) => {
+  const handleProthesisSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!pForm.client || !pForm.value || !pForm.sellerId) { toast.error('Preencha os obrigatórios'); return; }
-    addProthesisSale({
+    if (!await addProthesisSale({
       date: pForm.date, client: pForm.client, whatsapp: pForm.whatsapp, value: Number(pForm.value),
       sellerId: pForm.sellerId, installments: Number(pForm.installments), installmentsPaid: 1,
       payMethod1: pForm.payMethod1, payAmount1: Number(pForm.value) / Number(pForm.installments), notes: pForm.notes,
       lastMaintenance: pForm.date
-    });
+    })) return;
     toast.success('Venda de prótese registrada');
     setPForm({ ...pForm, client: '', whatsapp: '', value: '', notes: '' });
   };
@@ -55,15 +55,15 @@ export default function Vendas() {
     setIsEditPOpen(true);
   };
 
-  const handleEditP = (e: React.FormEvent) => {
+  const handleEditP = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editPSale || !pEditForm.client || !pEditForm.value) { toast.error('Preencha os obrigatórios'); return; }
-    updateProthesisSale(editPSale.id, {
+    if (!await updateProthesisSale(editPSale.id, {
       date: pEditForm.date, client: pEditForm.client, whatsapp: pEditForm.whatsapp,
       value: Number(pEditForm.value), sellerId: pEditForm.sellerId,
       installments: Number(pEditForm.installments), payMethod1: pEditForm.payMethod1,
       payAmount1: Number(pEditForm.value) / Number(pEditForm.installments), notes: pEditForm.notes,
-    });
+    })) return;
     toast.success('Venda atualizada');
     setIsEditPOpen(false);
   };
@@ -74,13 +74,13 @@ export default function Vendas() {
   const mentoriaRev = mentoriaSessions.filter(m => m.status === 'completed').reduce((s,m) => s + m.value, 0);
   const mentoriaSched = mentoriaSessions.filter(m => m.status === 'scheduled').length;
 
-  const handleMentoriaSubmit = (e: React.FormEvent) => {
+  const handleMentoriaSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!mForm.client || !mForm.value || !mForm.sellerId) { toast.error('Preencha os obrigatórios'); return; }
-    addMentoriaSession({
+    if (!await addMentoriaSession({
       date: mForm.date, client: mForm.client, sellerId: mForm.sellerId, value: Number(mForm.value),
       durationHours: Number(mForm.durationHours), status: mForm.status as any, notes: mForm.notes
-    });
+    })) return;
     toast.success('Sessão registrada');
     setMForm({ ...mForm, client: '', value: '', notes: '' });
   };
@@ -96,13 +96,13 @@ export default function Vendas() {
     setIsEditMOpen(true);
   };
 
-  const handleEditM = (e: React.FormEvent) => {
+  const handleEditM = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editMSession || !mEditForm.client || !mEditForm.value) { toast.error('Preencha os obrigatórios'); return; }
-    updateMentoriaSession(editMSession.id, {
+    if (!await updateMentoriaSession(editMSession.id, {
       date: mEditForm.date, client: mEditForm.client, sellerId: mEditForm.sellerId,
       value: Number(mEditForm.value), durationHours: Number(mEditForm.durationHours), notes: mEditForm.notes,
-    });
+    })) return;
     toast.success('Sessão atualizada');
     setIsEditMOpen(false);
   };
@@ -181,7 +181,7 @@ export default function Vendas() {
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${isOver ? 'bg-destructive text-white' : 'bg-warning text-black'}`}>{a.daysSince} dias</span>
                         </div>
                         <div className="flex items-center gap-2 mt-2 pt-2 border-t border-black/10 dark:border-white/10">
-                          <button onClick={()=>{updateProthesisSale(a.id, {lastMaintenance: today}); toast.success('Atualizado');}} className="text-xs font-medium px-2 py-1 rounded bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10">Renovar Hoje</button>
+                           <button onClick={async()=>{if(await updateProthesisSale(a.id, {lastMaintenance: today})) toast.success('Atualizado');}} className="text-xs font-medium px-2 py-1 rounded bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10">Renovar Hoje</button>
                           {a.whatsapp && <button aria-label={`Avisar ${a.client} pelo WhatsApp`} onClick={()=>{const wa=a.whatsapp!; window.open(`https://wa.me/55${wa.replace(/\D/g,'')}?text=${encodeURIComponent(`Olá ${a.client}, já faz ${a.daysSince} dias desde sua última manutenção de prótese. Vamos agendar?`)}`, '_blank');}} className="text-xs font-medium px-2 py-1 rounded bg-[#25D366]/20 text-[#25D366] hover:bg-[#25D366]/30 ml-auto flex items-center gap-1"><MessageSquare className="w-3 h-3"/> Avisar</button>}
                         </div>
                       </div>
@@ -215,9 +215,9 @@ export default function Vendas() {
                           </td>
                           <td className="py-3 text-right">
                             <div className="flex justify-end gap-2 items-center">
-                              {p.installmentsPaid < p.installments && <button onClick={()=>{updateProthesisSale(p.id,{installmentsPaid: p.installmentsPaid+1}); toast.success('Parcela paga');}} className="text-xs bg-success text-white px-2 py-1 rounded hover:bg-success/80 transition-colors">Pagar Parc.</button>}
+                               {p.installmentsPaid < p.installments && <button onClick={async()=>{if(await updateProthesisSale(p.id,{installmentsPaid: p.installmentsPaid+1})) toast.success('Parcela paga');}} className="text-xs bg-success text-white px-2 py-1 rounded hover:bg-success/80 transition-colors">Pagar Parc.</button>}
                               <button aria-label={`Editar venda de ${p.client}`} onClick={()=>openEditP(p)} className="p-1.5 text-brand-gold hover:bg-brand-gold/10 rounded transition-all hover:scale-105"><Edit2 className="w-4 h-4"/></button>
-                              <AlertDialog><AlertDialogTrigger asChild><button aria-label={`Excluir venda de ${p.client}`} className="p-1.5 text-destructive hover:bg-destructive/10 rounded transition-all hover:scale-105"><Trash2 className="w-4 h-4"/></button></AlertDialogTrigger><AlertDialogContent className="bg-brand-surface border-brand-border text-foreground"><AlertDialogHeader><AlertDialogTitle>Excluir Venda?</AlertDialogTitle><AlertDialogDescription>Deseja remover?</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel className="bg-brand-bg border-brand-border text-foreground">Cancelar</AlertDialogCancel><AlertDialogAction className="bg-destructive text-white" onClick={()=>{removeProthesisSale(p.id);toast.success('Excluído');}}>Excluir</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+                               <AlertDialog><AlertDialogTrigger asChild><button aria-label={`Excluir venda de ${p.client}`} className="p-1.5 text-destructive hover:bg-destructive/10 rounded transition-all hover:scale-105"><Trash2 className="w-4 h-4"/></button></AlertDialogTrigger><AlertDialogContent className="bg-brand-surface border-brand-border text-foreground"><AlertDialogHeader><AlertDialogTitle>Excluir Venda?</AlertDialogTitle><AlertDialogDescription>Deseja remover?</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel className="bg-brand-bg border-brand-border text-foreground">Cancelar</AlertDialogCancel><AlertDialogAction className="bg-destructive text-white" onClick={async()=>{if(await removeProthesisSale(p.id)) toast.success('Excluído');}}>Excluir</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
                             </div>
                           </td>
                         </tr>
@@ -239,9 +239,9 @@ export default function Vendas() {
                       <div className="flex justify-between items-center pt-2 border-t border-brand-border/50">
                         <span className={`text-xs px-2 py-0.5 rounded ${p.installmentsPaid === p.installments ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'}`}>{p.installmentsPaid}/{p.installments} parcelas</span>
                         <div className="flex gap-1">
-                          {p.installmentsPaid < p.installments && <button onClick={()=>{updateProthesisSale(p.id,{installmentsPaid: p.installmentsPaid+1}); toast.success('Parcela paga');}} className="text-xs bg-success text-white px-2 py-1 rounded">Pagar</button>}
+                           {p.installmentsPaid < p.installments && <button onClick={async()=>{if(await updateProthesisSale(p.id,{installmentsPaid: p.installmentsPaid+1})) toast.success('Parcela paga');}} className="text-xs bg-success text-white px-2 py-1 rounded">Pagar</button>}
                           <button aria-label={`Editar venda de ${p.client}`} onClick={()=>openEditP(p)} className="p-1.5 text-brand-gold hover:bg-brand-gold/10 rounded transition-all hover:scale-105"><Edit2 className="w-4 h-4"/></button>
-                          <AlertDialog><AlertDialogTrigger asChild><button aria-label={`Excluir venda de ${p.client}`} className="p-1.5 text-destructive hover:bg-destructive/10 rounded transition-all hover:scale-105"><Trash2 className="w-4 h-4"/></button></AlertDialogTrigger><AlertDialogContent className="bg-brand-surface border-brand-border text-foreground"><AlertDialogHeader><AlertDialogTitle>Excluir Venda?</AlertDialogTitle><AlertDialogDescription>Deseja remover?</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel className="bg-brand-bg border-brand-border text-foreground">Cancelar</AlertDialogCancel><AlertDialogAction className="bg-destructive text-white" onClick={()=>{removeProthesisSale(p.id);toast.success('Excluído');}}>Excluir</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+                           <AlertDialog><AlertDialogTrigger asChild><button aria-label={`Excluir venda de ${p.client}`} className="p-1.5 text-destructive hover:bg-destructive/10 rounded transition-all hover:scale-105"><Trash2 className="w-4 h-4"/></button></AlertDialogTrigger><AlertDialogContent className="bg-brand-surface border-brand-border text-foreground"><AlertDialogHeader><AlertDialogTitle>Excluir Venda?</AlertDialogTitle><AlertDialogDescription>Deseja remover?</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel className="bg-brand-bg border-brand-border text-foreground">Cancelar</AlertDialogCancel><AlertDialogAction className="bg-destructive text-white" onClick={async()=>{if(await removeProthesisSale(p.id)) toast.success('Excluído');}}>Excluir</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
                         </div>
                       </div>
                     </div>
@@ -293,14 +293,14 @@ export default function Vendas() {
                           <td className="py-3">{m.durationHours}h</td>
                           <td className="py-3 text-right font-medium text-brand-gold">{brl(m.value)}</td>
                           <td className="py-3 text-center">
-                            <select value={m.status} onChange={e=>{updateMentoriaSession(m.id, {status: e.target.value as any}); toast.success('Status alterado');}} className={`text-xs font-bold px-2 py-1 rounded outline-none cursor-pointer ${m.status==='completed'?'bg-success/10 text-success': m.status==='cancelled'?'bg-destructive/10 text-destructive':'bg-warning/10 text-warning'}`}>
+                            <select value={m.status} onChange={async e=>{if(await updateMentoriaSession(m.id, {status: e.target.value as any})) toast.success('Status alterado');}} className={`text-xs font-bold px-2 py-1 rounded outline-none cursor-pointer ${m.status==='completed'?'bg-success/10 text-success': m.status==='cancelled'?'bg-destructive/10 text-destructive':'bg-warning/10 text-warning'}`}>
                               <option value="scheduled">Agendada</option><option value="completed">Concluída</option><option value="cancelled">Cancelada</option>
                             </select>
                           </td>
                           <td className="py-3 text-right">
                             <div className="flex justify-end gap-1 items-center">
                               <button aria-label={`Editar sessão de ${m.client}`} onClick={()=>openEditM(m)} className="p-1.5 text-brand-gold hover:bg-brand-gold/10 rounded transition-all hover:scale-105"><Edit2 className="w-4 h-4"/></button>
-                              <AlertDialog><AlertDialogTrigger asChild><button aria-label={`Excluir sessão de ${m.client}`} className="p-1.5 text-destructive hover:bg-destructive/10 rounded transition-all hover:scale-105"><Trash2 className="w-4 h-4"/></button></AlertDialogTrigger><AlertDialogContent className="bg-brand-surface border-brand-border text-foreground"><AlertDialogHeader><AlertDialogTitle>Excluir Sessão?</AlertDialogTitle><AlertDialogDescription>Deseja remover?</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel className="bg-brand-bg border-brand-border text-foreground">Cancelar</AlertDialogCancel><AlertDialogAction className="bg-destructive text-white" onClick={()=>{removeMentoriaSession(m.id);toast.success('Excluído');}}>Excluir</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+                              <AlertDialog><AlertDialogTrigger asChild><button aria-label={`Excluir sessão de ${m.client}`} className="p-1.5 text-destructive hover:bg-destructive/10 rounded transition-all hover:scale-105"><Trash2 className="w-4 h-4"/></button></AlertDialogTrigger><AlertDialogContent className="bg-brand-surface border-brand-border text-foreground"><AlertDialogHeader><AlertDialogTitle>Excluir Sessão?</AlertDialogTitle><AlertDialogDescription>Deseja remover?</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel className="bg-brand-bg border-brand-border text-foreground">Cancelar</AlertDialogCancel><AlertDialogAction className="bg-destructive text-white" onClick={async()=>{if(await removeMentoriaSession(m.id)) toast.success('Excluído');}}>Excluir</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
                             </div>
                           </td>
                         </tr>
@@ -325,7 +325,7 @@ export default function Vendas() {
                         </select>
                         <div className="flex gap-1">
                           <button aria-label={`Editar sessão de ${m.client}`} onClick={()=>openEditM(m)} className="p-1.5 text-brand-gold hover:bg-brand-gold/10 rounded transition-all hover:scale-105"><Edit2 className="w-4 h-4"/></button>
-                          <AlertDialog><AlertDialogTrigger asChild><button aria-label={`Excluir sessão de ${m.client}`} className="p-1.5 text-destructive hover:bg-destructive/10 rounded transition-all hover:scale-105"><Trash2 className="w-4 h-4"/></button></AlertDialogTrigger><AlertDialogContent className="bg-brand-surface border-brand-border text-foreground"><AlertDialogHeader><AlertDialogTitle>Excluir Sessão?</AlertDialogTitle><AlertDialogDescription>Deseja remover?</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel className="bg-brand-bg border-brand-border text-foreground">Cancelar</AlertDialogCancel><AlertDialogAction className="bg-destructive text-white" onClick={()=>{removeMentoriaSession(m.id);toast.success('Excluído');}}>Excluir</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+                          <AlertDialog><AlertDialogTrigger asChild><button aria-label={`Excluir sessão de ${m.client}`} className="p-1.5 text-destructive hover:bg-destructive/10 rounded transition-all hover:scale-105"><Trash2 className="w-4 h-4"/></button></AlertDialogTrigger><AlertDialogContent className="bg-brand-surface border-brand-border text-foreground"><AlertDialogHeader><AlertDialogTitle>Excluir Sessão?</AlertDialogTitle><AlertDialogDescription>Deseja remover?</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel className="bg-brand-bg border-brand-border text-foreground">Cancelar</AlertDialogCancel><AlertDialogAction className="bg-destructive text-white" onClick={async()=>{if(await removeMentoriaSession(m.id)) toast.success('Excluído');}}>Excluir</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
                         </div>
                       </div>
                     </div>

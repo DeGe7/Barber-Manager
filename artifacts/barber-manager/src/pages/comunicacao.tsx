@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useStore, Client } from '@/data/store';
+import { api, CommunicationChannel, CommunicationSend } from '@/data/api';
 import { toast } from 'sonner';
-import { Megaphone, MessageSquare, Copy, Users, CalendarDays, Clock3 } from 'lucide-react';
+import { Megaphone, MessageSquare, Copy, Users, CalendarDays, Clock3, Mail, Send, CheckCircle2, AlertCircle } from 'lucide-react';
 
 type CampaignId = 'anuncios' | 'churn' | 'aniversarios';
 
@@ -41,10 +42,45 @@ function isBirthdayThisWeek(birthday: string | undefined, today: Date) {
   return thisYearBirthday >= start && thisYearBirthday <= end;
 }
 
+function channelLabel(channel: CommunicationChannel) {
+  return channel === 'whatsapp' ? 'WhatsApp' : 'e-mail';
+}
+
+function recipientAddress(client: Client, channel: CommunicationChannel) {
+  return channel === 'whatsapp' ? client.whatsapp.trim() : client.email.trim();
+}
+
+function isValidRecipient(client: Client, channel: CommunicationChannel) {
+  const address = recipientAddress(client, channel);
+  return channel === 'whatsapp'
+    ? address.replace(/\D/g, '').length >= 10
+    : /^\S+@\S+\.\S+$/.test(address);
+}
+
+function communicationUrl(channel: CommunicationChannel, address: string, message: string, subject: string) {
+  if (channel === 'whatsapp') {
+    const digits = address.replace(/\D/g, '');
+    const phone = digits.startsWith('55') ? digits : `55${digits}`;
+    return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+  }
+  return `mailto:${encodeURIComponent(address)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(message)}`;
+}
+
+function formatHistoryDate(value: string) {
+  if (!value) return 'agora';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 'agora' : date.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+}
+
 export default function Comunicacao() {
   const { clients, config, isLoading } = useStore();
   const [activeCampaign, setActiveCampaign] = useState<CampaignId>('anuncios');
   const [messages, setMessages] = useState(DEFAULT_MESSAGES);
+  const [channel, setChannel] = useState<CommunicationChannel>('whatsapp');
+  const [consentConfirmed, setConsentConfirmed] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const [history, setHistory] = useState<CommunicationSend[]>([]);
+  const [historyError, setHistoryError] = useState('');
 
   const today = new Date();
   const companyName = config.name || 'nossa barbearia';
@@ -62,6 +98,22 @@ export default function Comunicacao() {
   const audience = audiences[activeCampaign];
   const message = messages[activeCampaign];
   const previewMessage = (client: Client) => message.replaceAll('{nome}', client.name).replaceAll('{empresa}', companyName);
+  const eligibleAudience = useMemo(
+    () => audience.filter(client => isValidRecipient(client, channel)),
+    [audience, channel],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    void api.communication.list()
+      .then(records => {
+        if (!cancelled) setHistory(records);
+      })
+      .catch(error => {
+        if (!cancelled) setHistoryError(error instanceof Error ? error.message : 'Histórico indisponível.');
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   const copyBatch = async () => {
     const payload = {
@@ -76,8 +128,85 @@ export default function Comunicacao() {
         message: previewMessage(client),
       })),
     };
-    await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
-    toast.success(`${audience.length} destinatário(s) copiado(s) para o n8n`);
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+      toast.success(`${audience.length} destinatário(s) copiado(s) para o n8n`);
+    } catch {
+      toast.error('Não foi possível copiar o lote. Verifique a permissão do navegador.');
+    }
+  };
+
+  const sendRecipient = async (client: Client, showToast = true) => {
+    const address = recipientAddress(client, channel);
+    if (!isValidRecipient(client, channel)) {
+      if (showToast) toast.error(`${client.name} não tem ${channelLabel(channel)} válido cadastrado.`);
+      return false;
+    }
+
+    let record: CommunicationSend;
+    try {
+      record = await api.communication.log({
+        channel,
+        kind: 'campaign',
+        campaignId: activeCampaign,
+        campaignLabel: campaign.label,
+        recipientId: client.id,
+        recipientName: client.name,
+        recipientAddress: address,
+        message: previewMessage(client),
+        status: 'initiated',
+      });
+    } catch (error) {
+      if (showToast) toast.error(error instanceof Error ? error.message : 'Não foi possível registrar o envio.');
+      return false;
+    }
+
+    setHistory(current => [record, ...current.filter(item => item.id !== record.id)]);
+    const opened = Boolean(window.open(
+      communicationUrl(channel, address, previewMessage(client), `${campaign.label} — ${companyName}`),
+      '_blank',
+      'noopener,noreferrer',
+    ));
+    if (!opened) {
+      const reason = 'O navegador bloqueou a abertura do canal de envio.';
+      try {
+        const failed = await api.communication.markFailed(record.id, reason);
+        setHistory(current => current.map(item => item.id === failed.id ? failed : item));
+      } catch {
+        setHistory(current => current.map(item => item.id === record.id ? { ...item, status: 'failed', failureReason: reason } : item));
+      }
+      if (showToast) toast.error(`${channelLabel(channel)} bloqueado pelo navegador. Permita pop-ups e tente novamente.`);
+      return false;
+    }
+    return true;
+  };
+
+  const sendCampaign = async () => {
+    if (!consentConfirmed) {
+      toast.error('Confirme o consentimento antes de iniciar o disparo.');
+      return;
+    }
+    if (!eligibleAudience.length) {
+      toast.error(`Nenhum contato tem ${channelLabel(channel)} válido cadastrado.`);
+      return;
+    }
+    setIsSending(true);
+    let started = 0;
+    let failed = audience.length - eligibleAudience.length;
+    try {
+      for (const client of eligibleAudience) {
+        if (await sendRecipient(client, false)) started += 1;
+        else failed += 1;
+      }
+      if (failed) {
+        toast.warning(`${started} envio(s) encaminhado(s) e ${failed} falha(s). Consulte o histórico.`);
+      } else {
+        toast.success(`${started} envio(s) encaminhado(s) por ${channelLabel(channel)}.`);
+      }
+      setConsentConfirmed(false);
+    } finally {
+      setIsSending(false);
+    }
   };
 
   if (isLoading) return <div className="p-5 md:p-8 text-muted-foreground">Carregando comunicação...</div>;
@@ -88,7 +217,7 @@ export default function Comunicacao() {
         <div className="p-3 rounded-xl bg-brand-surface border border-brand-border text-brand-gold"><MessageSquare className="w-6 h-6" /></div>
         <div>
           <h2 className="text-2xl font-bold">Disparos de Mensagens</h2>
-          <p className="text-sm text-muted-foreground mt-1">Prepare campanhas segmentadas para automatizar pelo n8n.</p>
+          <p className="text-sm text-muted-foreground mt-1">Prepare campanhas segmentadas e encaminhe cada mensagem pelo canal escolhido.</p>
         </div>
       </div>
 
@@ -119,17 +248,37 @@ export default function Comunicacao() {
             <Megaphone className="w-5 h-5 text-brand-gold" />
           </div>
           <textarea value={message} onChange={event => setMessages(current => ({ ...current, [activeCampaign]: event.target.value }))} className="w-full min-h-36 resize-y bg-brand-bg border border-brand-border rounded-lg px-4 py-3 text-sm outline-none focus:ring-1 focus:ring-brand-gold" />
-          <button type="button" onClick={copyBatch} disabled={!audience.length} className="w-full flex items-center justify-center gap-2 bg-brand-gold text-brand-bg font-bold py-2.5 rounded-lg disabled:opacity-40">
-            <Copy className="w-4 h-4" /> Copiar lote para o n8n
-          </button>
-          <p className="text-xs text-muted-foreground">O lote copiado contém a campanha, os contatos e a mensagem personalizada de cada pessoa.</p>
+          <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-3">
+            <div>
+              <label htmlFor="campaign-channel" className="text-xs font-semibold text-muted-foreground uppercase">Canal</label>
+              <select id="campaign-channel" value={channel} onChange={event => setChannel(event.target.value as CommunicationChannel)} className="mt-1 w-full bg-brand-bg border border-brand-border rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-1 focus:ring-brand-gold">
+                <option value="whatsapp">WhatsApp</option>
+                <option value="email">E-mail</option>
+              </select>
+            </div>
+            <div className="flex items-end rounded-lg border border-brand-border bg-brand-bg px-3 py-2.5">
+              <label className="flex gap-2 text-xs leading-5 text-muted-foreground">
+                <input type="checkbox" checked={consentConfirmed} onChange={event => setConsentConfirmed(event.target.checked)} className="mt-1 h-4 w-4 accent-brand-gold" />
+                <span>Confirmo que estes contatos autorizaram o recebimento desta comunicação.</span>
+              </label>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button type="button" onClick={sendCampaign} disabled={isSending || !eligibleAudience.length || !consentConfirmed} className="flex items-center justify-center gap-2 bg-brand-gold text-brand-bg font-bold py-2.5 rounded-lg disabled:opacity-40">
+              <Send className="w-4 h-4" /> {isSending ? 'Abrindo canais...' : `Enviar por ${channelLabel(channel)}`}
+            </button>
+            <button type="button" onClick={copyBatch} disabled={!audience.length} className="flex items-center justify-center gap-2 border border-brand-border text-foreground font-bold py-2.5 rounded-lg hover:border-brand-gold hover:text-brand-gold disabled:opacity-40">
+              <Copy className="w-4 h-4" /> Copiar lote para o n8n
+            </button>
+          </div>
+          <p className="text-xs text-muted-foreground">O Barber Manager abre o WhatsApp ou o aplicativo de e-mail com a mensagem preenchida. Confirme o envio no canal aberto; o início e eventuais bloqueios ficam registrados.</p>
         </section>
 
         <section className="bg-brand-surface border border-brand-border rounded-2xl p-6 space-y-4">
           <div className="flex items-center justify-between border-b border-brand-border/50 pb-4">
             <div>
               <h3 className="text-lg font-bold">{campaign.label}</h3>
-              <p className="text-xs text-muted-foreground mt-1">{audience.length} contato(s) encontrado(s)</p>
+              <p className="text-xs text-muted-foreground mt-1">{audience.length} contato(s) encontrado(s) • {eligibleAudience.length} com {channelLabel(channel)} válido</p>
             </div>
             <Users className="w-5 h-5 text-brand-gold" />
           </div>
@@ -142,17 +291,54 @@ export default function Comunicacao() {
                   <div className="w-9 h-9 rounded-full bg-brand-gold/15 text-brand-gold flex items-center justify-center font-bold text-sm">{client.name.charAt(0).toUpperCase()}</div>
                   <div className="min-w-0 flex-1">
                     <p className="font-semibold truncate">{client.name}</p>
-                    <p className="text-xs text-muted-foreground">{client.whatsapp || 'Sem WhatsApp cadastrado'}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {recipientAddress(client, channel) || `Sem ${channelLabel(channel)} cadastrado`}
+                      {recipientAddress(client, channel) && !isValidRecipient(client, channel) ? ' • inválido' : ''}
+                    </p>
                   </div>
-                  <button type="button" onClick={() => navigator.clipboard.writeText(previewMessage(client)).then(() => toast.success('Mensagem copiada'))} className="p-2 text-muted-foreground hover:text-brand-gold" title="Copiar mensagem" aria-label={`Copiar mensagem para ${client.name}`}>
-                    <Copy className="w-4 h-4" />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button type="button" onClick={() => sendRecipient(client)} disabled={isSending || !isValidRecipient(client, channel) || !consentConfirmed} className="rounded-lg p-2 text-brand-gold hover:bg-brand-gold/10 disabled:opacity-30" title={`Enviar por ${channelLabel(channel)}`} aria-label={`Enviar mensagem para ${client.name}`}>
+                      <Send className="w-4 h-4" />
+                    </button>
+                    <button type="button" onClick={() => navigator.clipboard.writeText(previewMessage(client)).then(() => toast.success('Mensagem copiada')).catch(() => toast.error('Não foi possível copiar a mensagem.'))} className="p-2 text-muted-foreground hover:text-brand-gold" title="Copiar mensagem" aria-label={`Copiar mensagem para ${client.name}`}>
+                      <Copy className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
           )}
         </section>
       </div>
+
+      <section className="bg-brand-surface border border-brand-border rounded-2xl p-6 space-y-4">
+        <div className="flex items-center justify-between gap-3 border-b border-brand-border/50 pb-4">
+          <div>
+            <h3 className="text-lg font-bold">Histórico de envios</h3>
+            <p className="text-xs text-muted-foreground mt-1">Registra quando o canal foi aberto e quando o navegador bloqueou a tentativa.</p>
+          </div>
+          <Mail className="w-5 h-5 text-brand-gold" />
+        </div>
+        {historyError ? (
+          <div className="flex gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning"><AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />{historyError}</div>
+        ) : history.length === 0 ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">Nenhum envio registrado ainda.</p>
+        ) : (
+          <div className="space-y-2">
+            {history.slice(0, 8).map(item => (
+              <div key={item.id} className="flex items-center gap-3 rounded-lg border border-brand-border bg-brand-bg p-3">
+                <div className={`rounded-lg p-2 ${item.status === 'initiated' ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'}`}>
+                  {item.status === 'initiated' ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold">{item.recipientName} <span className="font-normal text-muted-foreground">• {channelLabel(item.channel)}</span></p>
+                  <p className="truncate text-xs text-muted-foreground">{item.status === 'initiated' ? 'Canal aberto para confirmação do envio' : item.failureReason || 'Falha ao abrir o canal'} • {formatHistoryDate(item.createdAt)}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }

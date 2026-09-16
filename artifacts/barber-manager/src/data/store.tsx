@@ -15,7 +15,7 @@ import {
   type ReactNode,
 } from 'react';
 import { toast } from 'sonner';
-import { api } from './api';
+import { api, type FinanceHistoryItem } from './api';
 import { formatDateKey } from './date';
 import { useAuth } from '@/auth/auth';
 import { DEFAULT_ROLE_PERMISSIONS } from '@/auth/roles';
@@ -196,6 +196,7 @@ export interface Expense {
   description: string;
   amount: number;
   category: ExpenseCategory;
+  paymentMethod?: PayMethod;
 }
 
 export interface Income {
@@ -222,6 +223,19 @@ export interface Subscriber {
   startDate: string;
   nextPayment: string;
   status: 'ativo' | 'vencido' | 'pendente';
+}
+
+export type SubscriptionPaymentStatus = 'pago' | 'pendente' | 'vencido';
+
+export interface SubscriptionPayment {
+  id: string;
+  subscriberId: string;
+  dueDate: string;
+  paidAt?: string;
+  amount: number;
+  paymentMethod?: PayMethod;
+  status: SubscriptionPaymentStatus;
+  note?: string;
 }
 
 export interface BarbeariaConfig {
@@ -251,6 +265,10 @@ export const productStatus = (p: Product): 'critical' | 'low' | 'ok' => {
 
 const uid = (): string => crypto.randomUUID();
 
+function subscriptionPaymentKey(payment: SubscriptionPayment) {
+  return `${payment.subscriberId}:${payment.dueDate}`;
+}
+
 // Cast API response to typed entity
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const cast = <T,>(x: unknown): T => x as T;
@@ -262,73 +280,87 @@ export interface AppStoreValue {
 
   // Professionals
   professionals: Professional[];
-  addProfessional: (p: Omit<Professional, 'id'>) => void;
-  updateProfessional: (id: string, p: Partial<Professional>) => void;
-  removeProfessional: (id: string) => void;
+  addProfessional: (p: Omit<Professional, 'id'>) => Promise<boolean>;
+  updateProfessional: (id: string, p: Partial<Professional>) => Promise<boolean>;
+  removeProfessional: (id: string) => Promise<boolean>;
   getProfessional: (id: string) => Professional | undefined;
 
   // Appointments
   appointments: Appointment[];
-  addAppointment: (a: Omit<Appointment, 'id'>) => void;
-  updateAppointment: (id: string, a: Partial<Appointment>) => void;
-  removeAppointment: (id: string) => void;
+  addAppointment: (a: Omit<Appointment, 'id'>) => Promise<boolean>;
+  updateAppointment: (id: string, a: Partial<Appointment>) => Promise<boolean>;
+  removeAppointment: (id: string) => Promise<boolean>;
 
   // Blocks
   blocks: Block[];
-  addBlock: (b: Omit<Block, 'id'>) => void;
-  removeBlock: (id: string) => void;
+  addBlock: (b: Omit<Block, 'id'>) => Promise<boolean>;
+  removeBlock: (id: string) => Promise<boolean>;
 
   // Clients
   clients: Client[];
-  addClient: (c: Omit<Client, 'id' | 'createdAt' | 'visits'>) => void;
-  updateClient: (id: string, c: Partial<Omit<Client, 'id' | 'createdAt' | 'visits'>>) => void;
-  removeClient: (id: string) => void;
-  addVisit: (clientId: string, visit: Omit<ClientVisit, 'id'>) => void;
-  removeVisit: (clientId: string, visitId: string) => void;
+  addClient: (c: Omit<Client, 'id' | 'createdAt' | 'visits'>) => Promise<boolean>;
+  updateClient: (id: string, c: Partial<Omit<Client, 'id' | 'createdAt' | 'visits'>>) => Promise<boolean>;
+  removeClient: (id: string) => Promise<boolean>;
+  addVisit: (clientId: string, visit: Omit<ClientVisit, 'id'>) => Promise<boolean>;
+  removeVisit: (clientId: string, visitId: string) => Promise<boolean>;
 
   // Products
   products: Product[];
-  addProduct: (p: Omit<Product, 'id'>) => void;
-  updateProduct: (id: string, p: Partial<Product>) => void;
-  removeProduct: (id: string) => void;
-  sellProduct: (id: string, qty: number) => boolean;
-  restock: (id: string, qty: number) => void;
+  addProduct: (p: Omit<Product, 'id'>) => Promise<boolean>;
+  updateProduct: (id: string, p: Partial<Product>) => Promise<boolean>;
+  removeProduct: (id: string) => Promise<boolean>;
+  sellProduct: (id: string, qty: number) => Promise<boolean>;
+  restock: (id: string, qty: number) => Promise<boolean>;
 
   // Prothesis Sales
   prothesisSales: ProthesisSale[];
-  addProthesisSale: (s: Omit<ProthesisSale, 'id'>) => void;
-  updateProthesisSale: (id: string, s: Partial<ProthesisSale>) => void;
-  removeProthesisSale: (id: string) => void;
+  addProthesisSale: (s: Omit<ProthesisSale, 'id'>) => Promise<boolean>;
+  updateProthesisSale: (id: string, s: Partial<ProthesisSale>) => Promise<boolean>;
+  removeProthesisSale: (id: string) => Promise<boolean>;
 
   // Mentoria
   mentoriaSessions: MentoriaSession[];
-  addMentoriaSession: (m: Omit<MentoriaSession, 'id'>) => void;
-  updateMentoriaSession: (id: string, m: Partial<MentoriaSession>) => void;
-  removeMentoriaSession: (id: string) => void;
+  addMentoriaSession: (m: Omit<MentoriaSession, 'id'>) => Promise<boolean>;
+  updateMentoriaSession: (id: string, m: Partial<MentoriaSession>) => Promise<boolean>;
+  removeMentoriaSession: (id: string) => Promise<boolean>;
 
   // Finance
   expenses: Expense[];
-  addExpense: (e: Omit<Expense, 'id'>) => void;
-  removeExpense: (id: string) => void;
+  addExpense: (e: Omit<Expense, 'id'>) => Promise<boolean>;
+  updateExpense: (id: string, e: Partial<Expense>) => Promise<boolean>;
+  removeExpense: (id: string) => Promise<boolean>;
   incomes: Income[];
-  addIncome: (i: Omit<Income, 'id'>) => void;
-  removeIncome: (id: string) => void;
+  addIncome: (i: Omit<Income, 'id'>) => Promise<boolean>;
+  updateIncome: (id: string, i: Partial<Income>) => Promise<boolean>;
+  removeIncome: (id: string) => Promise<boolean>;
+  financeHistory: FinanceHistoryItem[];
+  refreshFinanceHistory: () => Promise<void>;
 
   // Plans
   plans: SubscriptionPlan[];
-  addPlan: (p: Omit<SubscriptionPlan, 'id'>) => void;
-  updatePlan: (id: string, p: Partial<SubscriptionPlan>) => void;
-  removePlan: (id: string) => void;
+  addPlan: (p: Omit<SubscriptionPlan, 'id'>) => Promise<boolean>;
+  updatePlan: (id: string, p: Partial<SubscriptionPlan>) => Promise<boolean>;
+  removePlan: (id: string) => Promise<boolean>;
 
   // Subscribers
   subscribers: Subscriber[];
-  addSubscriber: (s: Omit<Subscriber, 'id'>) => void;
-  updateSubscriber: (id: string, s: Partial<Subscriber>) => void;
-  removeSubscriber: (id: string) => void;
+  addSubscriber: (s: Omit<Subscriber, 'id'>) => Promise<boolean>;
+  updateSubscriber: (id: string, s: Partial<Subscriber>) => Promise<boolean>;
+  removeSubscriber: (id: string) => Promise<boolean>;
+  subscriptionPayments: SubscriptionPayment[];
+  setSubscriptionPaymentStatus: (input: {
+    subscriberId: string;
+    dueDate: string;
+    status: SubscriptionPaymentStatus;
+    paidAt?: string;
+    amount: number;
+    paymentMethod?: PayMethod;
+    note?: string;
+  }) => Promise<boolean>;
 
   // Config
   config: BarbeariaConfig;
-  updateConfig: (c: Partial<BarbeariaConfig>) => void;
+  updateConfig: (c: Partial<BarbeariaConfig>) => Promise<boolean>;
 }
 
 // ─── Context & Provider ───────────────────────────────────────────────────────
@@ -381,8 +413,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   const [mentoriaSessions, setMentoriaSessions] = useState<MentoriaSession[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [incomes, setIncomes] = useState<Income[]>([]);
+  const [financeHistory, setFinanceHistory] = useState<FinanceHistoryItem[]>([]);
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [subscribers, setSubscribers] = useState<Subscriber[]>([]);
+  const [subscriptionPayments, setSubscriptionPayments] = useState<SubscriptionPayment[]>([]);
   const [config, setConfig] = useState<BarbeariaConfig>(DEFAULT_CONFIG);
 
   // Keep a stable ref to products for sellProduct (avoids stale closure)
@@ -402,8 +436,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       setMentoriaSessions([]);
       setExpenses([]);
       setIncomes([]);
+       setFinanceHistory([]);
       setPlans([]);
       setSubscribers([]);
+      setSubscriptionPayments([]);
       setConfig(DEFAULT_CONFIG);
       setIsLoading(false);
       return () => { cancelled = true; };
@@ -421,11 +457,13 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       api.mentoriaSessions.list(),
       api.expenses.list(),
       api.incomes.list(),
+      api.financeHistory.list(),
       api.plans.list(),
       api.subscribers.list(),
+      api.subscriptionPayments.list(),
       api.config.get(),
     ])
-      .then(([profs, appts, blks, cls, prods, psales, msessions, exps, incs, pls, subs, cfg]) => {
+      .then(([profs, appts, blks, cls, prods, psales, msessions, exps, incs, history, pls, subs, payments, cfg]) => {
         if (cancelled) return;
         setProfessionals((profs as unknown[]).map(cast<Professional>));
         setAppointments((appts as unknown[]).map(cast<Appointment>));
@@ -443,8 +481,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         setMentoriaSessions((msessions as unknown[]).map(cast<MentoriaSession>));
         setExpenses((exps as unknown[]).map(cast<Expense>));
         setIncomes((incs as unknown[]).map(cast<Income>));
+        setFinanceHistory((history as FinanceHistoryItem[]));
         setPlans((pls as unknown[]).map(cast<SubscriptionPlan>));
         setSubscribers((subs as unknown[]).map(cast<Subscriber>));
+        setSubscriptionPayments((payments as unknown[]).map(cast<SubscriptionPayment>));
         const remoteConfig = cast<Partial<BarbeariaConfig>>(cfg) ?? {};
         setConfig({
           ...DEFAULT_CONFIG,
@@ -475,494 +515,475 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     return () => { cancelled = true; };
   }, [user, profile?.organizationId]);
 
-  // ─── Optimistic mutation helper ─────────────────────────────────────────────
+  // ─── Persist first, then publish the confirmed server state ─────────────────
 
-  function optimistic<T>(
-    setter: React.Dispatch<React.SetStateAction<T[]>>,
-    prev: T[],
-    next: T[],
-    apiFn: () => Promise<unknown>,
+  async function mutation<T>(
+    apiFn: () => Promise<T>,
     errMsg: string,
-  ) {
-    setter(next);
-    apiFn().catch((err) => {
+  ): Promise<T | undefined> {
+    try {
+      const result = await apiFn();
+      // Delete endpoints intentionally return no row. Preserve success with a
+      // sentinel so callers can distinguish it from a rejected request.
+      return result === undefined ? (true as unknown as T) : result;
+    } catch (err) {
       console.error(errMsg, err);
       toast.error(errMsg);
-      setter(prev); // rollback
-    });
+      return undefined;
+    }
   }
 
+  const refreshFinanceHistory = useCallback(async () => {
+    try {
+      setFinanceHistory(await api.financeHistory.list());
+    } catch (err) {
+      console.error('Erro ao atualizar histórico financeiro', err);
+    }
+  }, []);
+
   // ── Professionals ──
-  const addProfessional = useCallback((p: Omit<Professional, 'id'>) => {
+  const addProfessional = useCallback(async (p: Omit<Professional, 'id'>) => {
     const newP: Professional = { ...p, id: uid() };
-    setProfessionals(prev => {
-      const next = [...prev, newP];
-      api.professionals.create(newP as unknown as Record<string, unknown>).catch(err => {
-        console.error('Erro ao salvar profissional', err);
-        toast.error('Erro ao salvar profissional');
-        setProfessionals(prev2 => prev2.filter(x => x.id !== newP.id));
-      });
-      return next;
-    });
+    const saved = await mutation(
+      () => api.professionals.create(newP as unknown as Record<string, unknown>),
+      'Erro ao salvar profissional',
+    );
+    if (!saved) return false;
+    setProfessionals(prev => [...prev, cast<Professional>(saved)]);
+    return true;
   }, []);
 
-  const updateProfessional = useCallback((id: string, p: Partial<Professional>) => {
-    setProfessionals(prev => {
-      const next = prev.map(x => x.id === id ? { ...x, ...p } : x);
-      api.professionals.update(id, p).catch(err => {
-        console.error('Erro ao atualizar profissional', err);
-        toast.error('Erro ao atualizar profissional');
-        setProfessionals(prev);
-      });
-      return next;
-    });
+  const updateProfessional = useCallback(async (id: string, p: Partial<Professional>) => {
+    const saved = await mutation(
+      () => api.professionals.update(id, p),
+      'Erro ao atualizar profissional',
+    );
+    if (!saved) return false;
+    setProfessionals(prev => prev.map(item => item.id === id ? cast<Professional>(saved) : item));
+    return true;
   }, []);
 
-  const removeProfessional = useCallback((id: string) => {
-    setProfessionals(prev => {
-      const next = prev.filter(x => x.id !== id);
-      api.professionals.remove(id).catch(err => {
-        console.error('Erro ao remover profissional', err);
-        toast.error('Erro ao remover profissional');
-        setProfessionals(prev);
-      });
-      return next;
-    });
+  const removeProfessional = useCallback(async (id: string) => {
+    const saved = await mutation(
+      () => api.professionals.remove(id),
+      'Erro ao remover profissional',
+    );
+    if (saved === undefined) return false;
+    setProfessionals(prev => prev.filter(item => item.id !== id));
+    return true;
   }, []);
 
   const getProfessional = useCallback((id: string) => professionals.find(p => p.id === id), [professionals]);
 
   // ── Appointments ──
-  const addAppointment = useCallback((a: Omit<Appointment, 'id'>) => {
+  const addAppointment = useCallback(async (a: Omit<Appointment, 'id'>) => {
     const newA: Appointment = { ...a, id: uid() };
-    setAppointments(prev => {
-      const next = [...prev, newA];
-      api.appointments.create(newA as unknown as Record<string, unknown>).catch(err => {
-        console.error('Erro ao salvar agendamento', err);
-        toast.error('Erro ao salvar agendamento');
-        setAppointments(prev2 => prev2.filter(x => x.id !== newA.id));
-      });
-      return next;
-    });
+    const saved = await mutation(
+      () => api.appointments.create(newA as unknown as Record<string, unknown>),
+      'Erro ao salvar agendamento',
+    );
+    if (!saved) return false;
+    setAppointments(prev => [...prev, cast<Appointment>(saved)]);
+    return true;
   }, []);
 
-  const updateAppointment = useCallback((id: string, a: Partial<Appointment>) => {
-    setAppointments(prev => {
-      const next = prev.map(x => x.id === id ? { ...x, ...a } : x);
-      api.appointments.update(id, a).catch(err => {
-        console.error('Erro ao atualizar agendamento', err);
-        toast.error('Erro ao atualizar agendamento');
-        setAppointments(prev);
-      });
-      return next;
-    });
+  const updateAppointment = useCallback(async (id: string, a: Partial<Appointment>) => {
+    const saved = await mutation(
+      () => api.appointments.update(id, a),
+      'Erro ao atualizar agendamento',
+    );
+    if (!saved) return false;
+    setAppointments(prev => prev.map(item => item.id === id ? cast<Appointment>(saved) : item));
+    return true;
   }, []);
 
-  const removeAppointment = useCallback((id: string) => {
-    setAppointments(prev => {
-      const next = prev.filter(x => x.id !== id);
-      api.appointments.remove(id).catch(err => {
-        console.error('Erro ao remover agendamento', err);
-        toast.error('Erro ao remover agendamento');
-        setAppointments(prev);
-      });
-      return next;
-    });
+  const removeAppointment = useCallback(async (id: string) => {
+    const saved = await mutation(
+      () => api.appointments.remove(id),
+      'Erro ao remover agendamento',
+    );
+    if (saved === undefined) return false;
+    setAppointments(prev => prev.filter(item => item.id !== id));
+    return true;
   }, []);
 
   // ── Blocks ──
-  const addBlock = useCallback((b: Omit<Block, 'id'>) => {
+  const addBlock = useCallback(async (b: Omit<Block, 'id'>) => {
     const newB: Block = { ...b, id: uid() };
-    setBlocks(prev => {
-      const next = [...prev, newB];
-      api.blocks.create(newB as unknown as Record<string, unknown>).catch(err => {
-        console.error('Erro ao criar bloqueio', err);
-        toast.error('Erro ao criar bloqueio');
-        setBlocks(prev2 => prev2.filter(x => x.id !== newB.id));
-      });
-      return next;
-    });
+    const saved = await mutation(
+      () => api.blocks.create(newB as unknown as Record<string, unknown>),
+      'Erro ao criar bloqueio',
+    );
+    if (!saved) return false;
+    setBlocks(prev => [...prev, saved]);
+    return true;
   }, []);
 
-  const removeBlock = useCallback((id: string) => {
-    setBlocks(prev => {
-      const next = prev.filter(x => x.id !== id);
-      api.blocks.remove(id).catch(err => {
-        console.error('Erro ao remover bloqueio', err);
-        toast.error('Erro ao remover bloqueio');
-        setBlocks(prev);
-      });
-      return next;
-    });
+  const removeBlock = useCallback(async (id: string) => {
+    const saved = await mutation(
+      () => api.blocks.remove(id),
+      'Erro ao remover bloqueio',
+    );
+    if (saved === undefined) return false;
+    setBlocks(prev => prev.filter(item => item.id !== id));
+    return true;
   }, []);
 
   // ── Clients ──
-  const addClient = useCallback((c: Omit<Client, 'id' | 'createdAt' | 'visits'>) => {
+  const addClient = useCallback(async (c: Omit<Client, 'id' | 'createdAt' | 'visits'>) => {
     const newC: Client = { ...c, id: uid(), createdAt: formatDateKey(), visits: [] };
-    setClients(prev => {
-      const next = [...prev, newC];
-      api.clients.create(newC as unknown as Record<string, unknown>).catch(err => {
-        console.error('Erro ao salvar cliente', err);
-        toast.error('Erro ao salvar cliente');
-        setClients(prev2 => prev2.filter(x => x.id !== newC.id));
-      });
-      return next;
-    });
+    const saved = await mutation(
+      () => api.clients.create(newC as unknown as Record<string, unknown>),
+      'Erro ao salvar cliente',
+    );
+    if (!saved) return false;
+    setClients(prev => [...prev, cast<Client>(saved)]);
+    return true;
   }, []);
 
-  const updateClient = useCallback((id: string, c: Partial<Omit<Client, 'id' | 'createdAt' | 'visits'>>) => {
-    setClients(prev => {
-      const next = prev.map(x => x.id === id ? { ...x, ...c } : x);
-      api.clients.update(id, c).catch(err => {
-        console.error('Erro ao atualizar cliente', err);
-        toast.error('Erro ao atualizar cliente');
-        setClients(prev);
-      });
-      return next;
-    });
+  const updateClient = useCallback(async (id: string, c: Partial<Omit<Client, 'id' | 'createdAt' | 'visits'>>) => {
+    const saved = await mutation(
+      () => api.clients.update(id, c),
+      'Erro ao atualizar cliente',
+    );
+    if (!saved) return false;
+    setClients(prev => prev.map(item => item.id === id ? cast<Client>(saved) : item));
+    return true;
   }, []);
 
-  const removeClient = useCallback((id: string) => {
-    setClients(prev => {
-      const next = prev.filter(x => x.id !== id);
-      api.clients.remove(id).catch(err => {
-        console.error('Erro ao remover cliente', err);
-        toast.error('Erro ao remover cliente');
-        setClients(prev);
-      });
-      return next;
-    });
+  const removeClient = useCallback(async (id: string) => {
+    const saved = await mutation(
+      () => api.clients.remove(id),
+      'Erro ao remover cliente',
+    );
+    if (saved === undefined) return false;
+    setClients(prev => prev.filter(item => item.id !== id));
+    return true;
   }, []);
 
-  const addVisit = useCallback((clientId: string, visit: Omit<ClientVisit, 'id'>) => {
+  const addVisit = useCallback(async (clientId: string, visit: Omit<ClientVisit, 'id'>) => {
+    const current = clients.find(item => item.id === clientId);
+    if (!current) return false;
     const newVisit: ClientVisit = { ...visit, id: uid() };
-    setClients(prev => {
-      const next = prev.map(x => x.id === clientId
-        ? { ...x, visits: [...x.visits, newVisit] }
-        : x
-      );
-      const updated = next.find(x => x.id === clientId);
-      if (updated) {
-        api.clients.update(clientId, { visits: updated.visits }).catch(err => {
-          console.error('Erro ao salvar visita', err);
-          toast.error('Erro ao salvar visita');
-          setClients(prev);
-        });
-      }
-      return next;
-    });
-  }, []);
+    const saved = await mutation(
+      () => api.clients.update(clientId, { visits: [...current.visits, newVisit] }),
+      'Erro ao salvar visita',
+    );
+    if (!saved) return false;
+    setClients(prev => prev.map(item => item.id === clientId ? cast<Client>(saved) : item));
+    return true;
+  }, [clients]);
 
-  const removeVisit = useCallback((clientId: string, visitId: string) => {
-    setClients(prev => {
-      const next = prev.map(x => x.id === clientId
-        ? { ...x, visits: x.visits.filter(v => v.id !== visitId) }
-        : x
-      );
-      const updated = next.find(x => x.id === clientId);
-      if (updated) {
-        api.clients.update(clientId, { visits: updated.visits }).catch(err => {
-          console.error('Erro ao remover visita', err);
-          toast.error('Erro ao remover visita');
-          setClients(prev);
-        });
-      }
-      return next;
-    });
-  }, []);
+  const removeVisit = useCallback(async (clientId: string, visitId: string) => {
+    const current = clients.find(item => item.id === clientId);
+    if (!current) return false;
+    const saved = await mutation(
+      () => api.clients.update(clientId, { visits: current.visits.filter(item => item.id !== visitId) }),
+      'Erro ao remover visita',
+    );
+    if (!saved) return false;
+    setClients(prev => prev.map(item => item.id === clientId ? cast<Client>(saved) : item));
+    return true;
+  }, [clients]);
 
   // ── Products ──
-  const addProduct = useCallback((p: Omit<Product, 'id'>) => {
+  const addProduct = useCallback(async (p: Omit<Product, 'id'>) => {
     const newP: Product = { ...p, id: uid() };
-    setProducts(prev => {
-      const next = [...prev, newP];
-      api.products.create(newP as unknown as Record<string, unknown>).catch(err => {
-        console.error('Erro ao salvar produto', err);
-        toast.error('Erro ao salvar produto');
-        setProducts(prev2 => prev2.filter(x => x.id !== newP.id));
-      });
-      return next;
-    });
+    const saved = await mutation(
+      () => api.products.create(newP as unknown as Record<string, unknown>),
+      'Erro ao salvar produto',
+    );
+    if (!saved) return false;
+    setProducts(prev => [...prev, saved]);
+    return true;
   }, []);
 
-  const updateProduct = useCallback((id: string, p: Partial<Product>) => {
-    setProducts(prev => {
-      const next = prev.map(x => x.id === id ? { ...x, ...p } : x);
-      api.products.update(id, p).catch(err => {
-        console.error('Erro ao atualizar produto', err);
-        toast.error('Erro ao atualizar produto');
-        setProducts(prev);
-      });
-      return next;
-    });
+  const updateProduct = useCallback(async (id: string, p: Partial<Product>) => {
+    const saved = await mutation(
+      () => api.products.update(id, p),
+      'Erro ao atualizar produto',
+    );
+    if (!saved) return false;
+    setProducts(prev => prev.map(item => item.id === id ? saved : item));
+    return true;
   }, []);
 
-  const removeProduct = useCallback((id: string) => {
-    setProducts(prev => {
-      const next = prev.filter(x => x.id !== id);
-      api.products.remove(id).catch(err => {
-        console.error('Erro ao remover produto', err);
-        toast.error('Erro ao remover produto');
-        setProducts(prev);
-      });
-      return next;
-    });
+  const removeProduct = useCallback(async (id: string) => {
+    const saved = await mutation(
+      () => api.products.remove(id),
+      'Erro ao remover produto',
+    );
+    if (saved === undefined) return false;
+    setProducts(prev => prev.filter(item => item.id !== id));
+    return true;
   }, []);
 
-  const sellProduct = useCallback((id: string, qty: number): boolean => {
+  const sellProduct = useCallback(async (id: string, qty: number): Promise<boolean> => {
     const prod = productsRef.current.find(p => p.id === id);
     if (!prod) return false;
+    if (!Number.isInteger(qty) || qty <= 0) return false;
     if (prod.stock < qty) {
       toast.error(`Estoque insuficiente: ${prod.name} tem apenas ${prod.stock} un.`);
       return false;
     }
-    const newStock = prod.stock - qty;
-    setProducts(prev => {
-      const next = prev.map(p => p.id === id ? { ...p, stock: newStock } : p);
-      api.products.adjustStock(id, -qty).catch(err => {
-        console.error('Erro ao atualizar estoque', err);
-        toast.error('Erro ao atualizar estoque');
-        setProducts(prev);
-      });
-      return next;
-    });
-    if (newStock <= prod.minStock) toast.warning(`Estoque baixo: ${prod.name} — ${newStock} un restantes`);
+    const saved = await mutation(
+      () => api.products.adjustStock(id, -qty),
+      'Erro ao atualizar estoque',
+    );
+    if (!saved) return false;
+    setProducts(prev => prev.map(item => item.id === id ? saved : item));
+    if (saved.stock <= saved.minStock) toast.warning(`Estoque baixo: ${saved.name} — ${saved.stock} un restantes`);
     return true;
   }, []);
 
-  const restock = useCallback((id: string, qty: number) => {
-    setProducts(prev => {
-      const prod = prev.find(p => p.id === id);
-      if (!prod) return prev;
-      const newStock = prod.stock + qty;
-      const next = prev.map(p => p.id === id ? { ...p, stock: newStock } : p);
-      api.products.adjustStock(id, qty).catch(err => {
-        console.error('Erro ao repor estoque', err);
-        toast.error('Erro ao repor estoque');
-        setProducts(prev);
-      });
-      return next;
-    });
+  const restock = useCallback(async (id: string, qty: number) => {
+    if (!Number.isInteger(qty) || qty <= 0) return false;
+    const saved = await mutation(
+      () => api.products.adjustStock(id, qty),
+      'Erro ao repor estoque',
+    );
+    if (!saved) return false;
+    setProducts(prev => prev.map(item => item.id === id ? saved : item));
+    return true;
   }, []);
 
   // ── Prothesis Sales ──
-  const addProthesisSale = useCallback((s: Omit<ProthesisSale, 'id'>) => {
+  const addProthesisSale = useCallback(async (s: Omit<ProthesisSale, 'id'>) => {
     const newS: ProthesisSale = { ...s, id: uid() };
-    setProthesisSales(prev => {
-      const next = [...prev, newS];
-      api.prothesisSales.create(newS as unknown as Record<string, unknown>).catch(err => {
-        console.error('Erro ao salvar venda de prótese', err);
-        toast.error('Erro ao salvar venda de prótese');
-        setProthesisSales(prev2 => prev2.filter(x => x.id !== newS.id));
-      });
-      return next;
-    });
+    const saved = await mutation(
+      () => api.prothesisSales.create(newS as unknown as Record<string, unknown>),
+      'Erro ao salvar venda de prótese',
+    );
+    if (!saved) return false;
+    setProthesisSales(prev => [...prev, cast<ProthesisSale>(saved)]);
+    return true;
   }, []);
 
-  const updateProthesisSale = useCallback((id: string, s: Partial<ProthesisSale>) => {
-    setProthesisSales(prev => {
-      const next = prev.map(x => x.id === id ? { ...x, ...s } : x);
-      api.prothesisSales.update(id, s).catch(err => {
-        console.error('Erro ao atualizar venda de prótese', err);
-        toast.error('Erro ao atualizar venda de prótese');
-        setProthesisSales(prev);
-      });
-      return next;
-    });
+  const updateProthesisSale = useCallback(async (id: string, s: Partial<ProthesisSale>) => {
+    const saved = await mutation(
+      () => api.prothesisSales.update(id, s),
+      'Erro ao atualizar venda de prótese',
+    );
+    if (!saved) return false;
+    setProthesisSales(prev => prev.map(item => item.id === id ? cast<ProthesisSale>(saved) : item));
+    return true;
   }, []);
 
-  const removeProthesisSale = useCallback((id: string) => {
-    setProthesisSales(prev => {
-      const next = prev.filter(x => x.id !== id);
-      api.prothesisSales.remove(id).catch(err => {
-        console.error('Erro ao remover venda de prótese', err);
-        toast.error('Erro ao remover venda de prótese');
-        setProthesisSales(prev);
-      });
-      return next;
-    });
+  const removeProthesisSale = useCallback(async (id: string) => {
+    const saved = await mutation(
+      () => api.prothesisSales.remove(id),
+      'Erro ao remover venda de prótese',
+    );
+    if (saved === undefined) return false;
+    setProthesisSales(prev => prev.filter(item => item.id !== id));
+    return true;
   }, []);
 
   // ── Mentoria ──
-  const addMentoriaSession = useCallback((m: Omit<MentoriaSession, 'id'>) => {
+  const addMentoriaSession = useCallback(async (m: Omit<MentoriaSession, 'id'>) => {
     const newM: MentoriaSession = { ...m, id: uid() };
-    setMentoriaSessions(prev => {
-      const next = [...prev, newM];
-      api.mentoriaSessions.create(newM as unknown as Record<string, unknown>).catch(err => {
-        console.error('Erro ao salvar mentoria', err);
-        toast.error('Erro ao salvar mentoria');
-        setMentoriaSessions(prev2 => prev2.filter(x => x.id !== newM.id));
-      });
-      return next;
-    });
+    const saved = await mutation(
+      () => api.mentoriaSessions.create(newM as unknown as Record<string, unknown>),
+      'Erro ao salvar mentoria',
+    );
+    if (!saved) return false;
+    setMentoriaSessions(prev => [...prev, cast<MentoriaSession>(saved)]);
+    return true;
   }, []);
 
-  const updateMentoriaSession = useCallback((id: string, m: Partial<MentoriaSession>) => {
-    setMentoriaSessions(prev => {
-      const next = prev.map(x => x.id === id ? { ...x, ...m } : x);
-      api.mentoriaSessions.update(id, m).catch(err => {
-        console.error('Erro ao atualizar mentoria', err);
-        toast.error('Erro ao atualizar mentoria');
-        setMentoriaSessions(prev);
-      });
-      return next;
-    });
+  const updateMentoriaSession = useCallback(async (id: string, m: Partial<MentoriaSession>) => {
+    const saved = await mutation(
+      () => api.mentoriaSessions.update(id, m),
+      'Erro ao atualizar mentoria',
+    );
+    if (!saved) return false;
+    setMentoriaSessions(prev => prev.map(item => item.id === id ? cast<MentoriaSession>(saved) : item));
+    return true;
   }, []);
 
-  const removeMentoriaSession = useCallback((id: string) => {
-    setMentoriaSessions(prev => {
-      const next = prev.filter(x => x.id !== id);
-      api.mentoriaSessions.remove(id).catch(err => {
-        console.error('Erro ao remover mentoria', err);
-        toast.error('Erro ao remover mentoria');
-        setMentoriaSessions(prev);
-      });
-      return next;
-    });
+  const removeMentoriaSession = useCallback(async (id: string) => {
+    const saved = await mutation(
+      () => api.mentoriaSessions.remove(id),
+      'Erro ao remover mentoria',
+    );
+    if (saved === undefined) return false;
+    setMentoriaSessions(prev => prev.filter(item => item.id !== id));
+    return true;
   }, []);
 
   // ── Finance ──
-  const addExpense = useCallback((e: Omit<Expense, 'id'>) => {
+  const addExpense = useCallback(async (e: Omit<Expense, 'id'>) => {
     const newE: Expense = { ...e, id: uid() };
-    setExpenses(prev => {
-      const next = [...prev, newE];
-      api.expenses.create(newE as unknown as Record<string, unknown>).catch(err => {
-        console.error('Erro ao salvar despesa', err);
-        toast.error('Erro ao salvar despesa');
-        setExpenses(prev2 => prev2.filter(x => x.id !== newE.id));
-      });
-      return next;
-    });
+    const saved = await mutation(
+      () => api.expenses.create(newE as unknown as Record<string, unknown>),
+      'Erro ao salvar despesa',
+    );
+    if (!saved) return false;
+    setExpenses(prev => [...prev, cast<Expense>(saved)]);
+    return true;
   }, []);
 
-  const removeExpense = useCallback((id: string) => {
-    setExpenses(prev => {
-      const next = prev.filter(x => x.id !== id);
-      api.expenses.remove(id).catch(err => {
-        console.error('Erro ao remover despesa', err);
-        toast.error('Erro ao remover despesa');
-        setExpenses(prev);
-      });
-      return next;
-    });
+  const updateExpense = useCallback(async (id: string, e: Partial<Expense>) => {
+    const saved = await mutation(
+      () => api.expenses.update(id, e as unknown as Record<string, unknown>),
+      'Erro ao atualizar despesa',
+    );
+    if (!saved) return false;
+    setExpenses(prev => prev.map(item => item.id === id ? cast<Expense>(saved) : item));
+    await refreshFinanceHistory();
+    return true;
+  }, [refreshFinanceHistory]);
+
+  const removeExpense = useCallback(async (id: string) => {
+    const saved = await mutation(
+      () => api.expenses.remove(id),
+      'Erro ao remover despesa',
+    );
+    if (saved === undefined) return false;
+    setExpenses(prev => prev.filter(item => item.id !== id));
+    return true;
   }, []);
 
-  const addIncome = useCallback((i: Omit<Income, 'id'>) => {
+  const addIncome = useCallback(async (i: Omit<Income, 'id'>) => {
     const newI: Income = { ...i, id: uid() };
-    setIncomes(prev => {
-      const next = [...prev, newI];
-      api.incomes.create(newI as unknown as Record<string, unknown>).catch(err => {
-        console.error('Erro ao salvar receita', err);
-        toast.error('Erro ao salvar receita');
-        setIncomes(prev2 => prev2.filter(x => x.id !== newI.id));
-      });
-      return next;
-    });
+    const saved = await mutation(
+      () => api.incomes.create(newI as unknown as Record<string, unknown>),
+      'Erro ao salvar receita',
+    );
+    if (!saved) return false;
+    setIncomes(prev => [...prev, cast<Income>(saved)]);
+    return true;
   }, []);
 
-  const removeIncome = useCallback((id: string) => {
-    setIncomes(prev => {
-      const next = prev.filter(x => x.id !== id);
-      api.incomes.remove(id).catch(err => {
-        console.error('Erro ao remover receita', err);
-        toast.error('Erro ao remover receita');
-        setIncomes(prev);
-      });
-      return next;
-    });
+  const updateIncome = useCallback(async (id: string, i: Partial<Income>) => {
+    const saved = await mutation(
+      () => api.incomes.update(id, i as unknown as Record<string, unknown>),
+      'Erro ao atualizar receita',
+    );
+    if (!saved) return false;
+    setIncomes(prev => prev.map(item => item.id === id ? cast<Income>(saved) : item));
+    await refreshFinanceHistory();
+    return true;
+  }, [refreshFinanceHistory]);
+
+  const removeIncome = useCallback(async (id: string) => {
+    const saved = await mutation(
+      () => api.incomes.remove(id),
+      'Erro ao remover receita',
+    );
+    if (saved === undefined) return false;
+    setIncomes(prev => prev.filter(item => item.id !== id));
+    return true;
   }, []);
 
   // ── Plans ──
-  const addPlan = useCallback((p: Omit<SubscriptionPlan, 'id'>) => {
+  const addPlan = useCallback(async (p: Omit<SubscriptionPlan, 'id'>) => {
     const newP: SubscriptionPlan = { ...p, id: uid() };
-    setPlans(prev => {
-      const next = [...prev, newP];
-      api.plans.create(newP as unknown as Record<string, unknown>).catch(err => {
-        console.error('Erro ao salvar plano', err);
-        toast.error('Erro ao salvar plano');
-        setPlans(prev2 => prev2.filter(x => x.id !== newP.id));
-      });
-      return next;
-    });
+    const saved = await mutation(
+      () => api.plans.create(newP as unknown as Record<string, unknown>),
+      'Erro ao salvar plano',
+    );
+    if (!saved) return false;
+    setPlans(prev => [...prev, cast<SubscriptionPlan>(saved)]);
+    return true;
   }, []);
 
-  const updatePlan = useCallback((id: string, p: Partial<SubscriptionPlan>) => {
-    setPlans(prev => {
-      const next = prev.map(x => x.id === id ? { ...x, ...p } : x);
-      api.plans.update(id, p).catch(err => {
-        console.error('Erro ao atualizar plano', err);
-        toast.error('Erro ao atualizar plano');
-        setPlans(prev);
-      });
-      return next;
-    });
+  const updatePlan = useCallback(async (id: string, p: Partial<SubscriptionPlan>) => {
+    const saved = await mutation(
+      () => api.plans.update(id, p),
+      'Erro ao atualizar plano',
+    );
+    if (!saved) return false;
+    setPlans(prev => prev.map(item => item.id === id ? cast<SubscriptionPlan>(saved) : item));
+    return true;
   }, []);
 
-  const removePlan = useCallback((id: string) => {
-    setPlans(prev => {
-      const next = prev.filter(x => x.id !== id);
-      api.plans.remove(id).catch(err => {
-        console.error('Erro ao remover plano', err);
-        toast.error('Erro ao remover plano');
-        setPlans(prev);
-      });
-      return next;
-    });
+  const removePlan = useCallback(async (id: string) => {
+    const saved = await mutation(
+      () => api.plans.remove(id),
+      'Erro ao remover plano',
+    );
+    if (saved === undefined) return false;
+    setPlans(prev => prev.filter(item => item.id !== id));
+    return true;
   }, []);
 
   // ── Subscribers ──
-  const addSubscriber = useCallback((s: Omit<Subscriber, 'id'>) => {
+  const addSubscriber = useCallback(async (s: Omit<Subscriber, 'id'>) => {
     const newS: Subscriber = { ...s, id: uid() };
-    setSubscribers(prev => {
-      const next = [...prev, newS];
-      api.subscribers.create(newS as unknown as Record<string, unknown>).catch(err => {
-        console.error('Erro ao salvar assinante', err);
-        toast.error('Erro ao salvar assinante');
-        setSubscribers(prev2 => prev2.filter(x => x.id !== newS.id));
-      });
-      return next;
-    });
+    const saved = await mutation(
+      () => api.subscribers.create(newS as unknown as Record<string, unknown>),
+      'Erro ao salvar assinante',
+    );
+    if (!saved) return false;
+    setSubscribers(prev => [...prev, cast<Subscriber>(saved)]);
+    return true;
   }, []);
 
-  const updateSubscriber = useCallback((id: string, s: Partial<Subscriber>) => {
-    setSubscribers(prev => {
-      const next = prev.map(x => x.id === id ? { ...x, ...s } : x);
-      api.subscribers.update(id, s).catch(err => {
-        console.error('Erro ao atualizar assinante', err);
-        toast.error('Erro ao atualizar assinante');
-        setSubscribers(prev);
-      });
-      return next;
-    });
+  const updateSubscriber = useCallback(async (id: string, s: Partial<Subscriber>) => {
+    const saved = await mutation(
+      () => api.subscribers.update(id, s),
+      'Erro ao atualizar assinante',
+    );
+    if (!saved) return false;
+    setSubscribers(prev => prev.map(item => item.id === id ? cast<Subscriber>(saved) : item));
+    return true;
   }, []);
 
-  const removeSubscriber = useCallback((id: string) => {
-    setSubscribers(prev => {
-      const next = prev.filter(x => x.id !== id);
-      api.subscribers.remove(id).catch(err => {
-        console.error('Erro ao remover assinante', err);
-        toast.error('Erro ao remover assinante');
-        setSubscribers(prev);
-      });
-      return next;
+  const removeSubscriber = useCallback(async (id: string) => {
+    const saved = await mutation(
+      () => api.subscribers.remove(id),
+      'Erro ao remover assinante',
+    );
+    if (saved === undefined) return false;
+    setSubscribers(prev => prev.filter(item => item.id !== id));
+    return true;
+  }, []);
+
+  const setSubscriptionPaymentStatus = useCallback(async (input: {
+    subscriberId: string;
+    dueDate: string;
+    status: SubscriptionPaymentStatus;
+    paidAt?: string;
+    amount: number;
+    paymentMethod?: PayMethod;
+    note?: string;
+  }) => {
+    const saved = await mutation(
+      () => api.subscriptionPayments.setStatus(input),
+      'Erro ao atualizar mensalidade',
+    );
+    if (!saved) return false;
+    const confirmed = saved as {
+      payment: SubscriptionPayment;
+      subscriber: Subscriber;
+      nextPayment?: SubscriptionPayment;
+    };
+    setSubscriptionPayments(prev => {
+      const confirmedPayments = [confirmed.payment, confirmed.nextPayment]
+        .filter((item): item is SubscriptionPayment => Boolean(item));
+      const paymentKeys = new Set(confirmedPayments.map(subscriptionPaymentKey));
+      const withoutConfirmed = prev.filter(item => !paymentKeys.has(subscriptionPaymentKey(item)));
+      return [
+        ...withoutConfirmed,
+        ...confirmedPayments,
+      ].sort((a, b) => b.dueDate.localeCompare(a.dueDate));
     });
+    setSubscribers(prev => prev.map(item => item.id === confirmed.subscriber.id ? confirmed.subscriber : item));
+    return true;
   }, []);
 
   // ── Config ──
-  const updateConfig = useCallback((c: Partial<BarbeariaConfig>) => {
-    setConfig(prev => {
-      const next = { ...prev, ...c };
-      api.config.update(next).catch(err => {
-        console.error('Erro ao salvar configuração', err);
-        toast.error('Erro ao salvar configuração');
-        setConfig(prev);
-      });
-      return next;
-    });
-  }, []);
-
-  // Suppress unused warning for optimistic helper (only used inline above)
-  void optimistic;
+  const updateConfig = useCallback(async (c: Partial<BarbeariaConfig>) => {
+    const next = { ...config, ...c };
+    const saved = await mutation(
+      () => api.config.update(next),
+      'Erro ao salvar configuração',
+    );
+    if (!saved) return false;
+    setConfig(prev => ({ ...prev, ...saved }));
+    return true;
+  }, [config]);
 
   const value: AppStoreValue = {
     isLoading,
@@ -973,10 +994,12 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     products, addProduct, updateProduct, removeProduct, sellProduct, restock,
     prothesisSales, addProthesisSale, updateProthesisSale, removeProthesisSale,
     mentoriaSessions, addMentoriaSession, updateMentoriaSession, removeMentoriaSession,
-    expenses, addExpense, removeExpense,
-    incomes, addIncome, removeIncome,
+    expenses, addExpense, updateExpense, removeExpense,
+    incomes, addIncome, updateIncome, removeIncome,
+    financeHistory, refreshFinanceHistory,
     plans, addPlan, updatePlan, removePlan,
     subscribers, addSubscriber, updateSubscriber, removeSubscriber,
+    subscriptionPayments, setSubscriptionPaymentStatus,
     config, updateConfig,
   };
 
@@ -984,9 +1007,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
 }
 
 export function useStore(): AppStoreValue {
-  const ctx = useContext(StoreContext);
-  if (!ctx) throw new Error('useStore must be used within AppStoreProvider');
-  return ctx;
+  const context = useContext(StoreContext);
+  if (!context) throw new Error('useStore must be used within AppStoreProvider');
+  return context;
 }
 
 // ─── Backward-compat hooks ────────────────────────────────────────────────────

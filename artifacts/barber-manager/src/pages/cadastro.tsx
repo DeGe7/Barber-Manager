@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { useAuth } from '@/auth/auth';
+import CaptchaChallenge, { captchaRequired } from '@/auth/captcha';
+import { isAuthRateLimitError, useAuthRateLimit } from '@/auth/rate-limit';
 import { Scissors } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -12,6 +14,8 @@ export default function Cadastro() {
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
   const [loading, setLoading] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const { isCoolingDown, remainingSeconds, startCooldown } = useAuthRateLimit();
   const inviteToken = new URLSearchParams(window.location.search).get('convite') || '';
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -32,9 +36,17 @@ export default function Cadastro() {
       toast.error('As senhas não coincidem.');
       return;
     }
+    if (captchaRequired && !captchaToken) {
+      toast.error('Conclua a verificação antiabuso.');
+      return;
+    }
+    if (isCoolingDown) {
+      toast.error(`Aguarde ${remainingSeconds}s antes de tentar novamente.`);
+      return;
+    }
     setLoading(true);
     try {
-      const { needsEmailConfirmation } = await signUp(name, email, password);
+      const { needsEmailConfirmation } = await signUp(name, email, password, captchaToken);
       if (needsEmailConfirmation) {
         toast.success('Conta criada. Confira seu e-mail para confirmar o cadastro.');
         setLocation(inviteToken ? `/login?convite=${encodeURIComponent(inviteToken)}` : '/login');
@@ -45,6 +57,7 @@ export default function Cadastro() {
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Não foi possível criar a conta.');
+      if (isAuthRateLimitError(error)) startCooldown();
     } finally {
       setLoading(false);
     }
@@ -81,7 +94,8 @@ export default function Cadastro() {
             <label htmlFor="signup-confirmation" className="text-sm font-medium text-foreground">Confirmar senha</label>
             <input id="signup-confirmation" type="password" value={confirmation} onChange={event => setConfirmation(event.target.value)} autoComplete="new-password" required className="w-full bg-brand-bg border border-brand-border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-gold text-foreground" placeholder="Repita sua senha" />
           </div>
-          <button type="submit" disabled={loading} className="w-full bg-brand-gold text-brand-bg font-bold py-3 px-4 rounded-lg hover:bg-brand-gold/90 transition-all disabled:opacity-50">{loading ? 'Cadastrando...' : 'Cadastrar'}</button>
+          <CaptchaChallenge onTokenChange={setCaptchaToken} />
+          <button type="submit" disabled={loading || isCoolingDown} className="w-full bg-brand-gold text-brand-bg font-bold py-3 px-4 rounded-lg hover:bg-brand-gold/90 transition-all disabled:opacity-50">{loading ? 'Cadastrando...' : isCoolingDown ? `Aguarde ${remainingSeconds}s` : 'Cadastrar'}</button>
            <p className="text-center text-sm text-muted-foreground pt-2">Já tem uma conta? <Link href={inviteToken ? `/login?convite=${encodeURIComponent(inviteToken)}` : '/login'} className="text-brand-gold hover:underline">Entrar</Link></p>
         </form>
       </div>

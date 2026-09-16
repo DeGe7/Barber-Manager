@@ -1,5 +1,10 @@
 import { expect, test as base, type Page } from '@playwright/test';
-import { isProvisioningEnabled, readFixtureManifest } from './provision';
+import {
+  beginScenarioSnapshot,
+  cleanupScenarioFixtures,
+  isProvisioningEnabled,
+  readFixtureManifest,
+} from './provision';
 
 export interface Credentials {
   email: string;
@@ -58,7 +63,23 @@ export const invitationTokens = {
   },
 };
 
-export const test = base;
+type ScenarioFixtures = {
+  scenarioFixtures: void;
+};
+
+export const test = base.extend<ScenarioFixtures>({
+  scenarioFixtures: [
+    async ({}, use) => {
+      const snapshot = beginScenarioSnapshot();
+      try {
+        await use();
+      } finally {
+        await cleanupScenarioFixtures(snapshot);
+      }
+    },
+    { auto: true },
+  ],
+});
 export { expect };
 
 export function requireAccount(account: Credentials | undefined, name: string): Credentials {
@@ -84,9 +105,8 @@ export async function openModule(page: Page, path: string, heading: string) {
 }
 
 export async function settleMutation(page: Page) {
-  // Mutations are intentionally optimistic in the store. This gives the Supabase
-  // request time to commit before a reload asserts persistence.
-  await page.waitForTimeout(500);
+  // Mutations now resolve only after Supabase confirms the write.
+  await Promise.resolve();
 }
 
 export function waitForMutation(page: Page, table: string, method: string) {

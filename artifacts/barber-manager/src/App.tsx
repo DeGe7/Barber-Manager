@@ -18,10 +18,13 @@ import { AppStoreProvider } from '@/data/store';
 import { AuthProvider, useAuth } from '@/auth/auth';
 import { SplashScreen } from '@/components/SplashScreen';
 import { Layout } from '@/components/Layout';
+import { ThemeProvider, useTheme } from '@/components/theme-provider';
 
 // Pages
 import Login from '@/pages/login';
 import Cadastro from '@/pages/cadastro';
+import EsqueciSenha from '@/pages/esqueci-senha';
+import RedefinirSenha from '@/pages/redefinir-senha';
 import Onboarding from '@/pages/onboarding';
 import Convite from '@/pages/convite';
 import Dashboard from '@/pages/dashboard';
@@ -71,13 +74,14 @@ function MainRouter() {
 
   // Auth routing logic
   const isInviteRoute = location.startsWith('/convite/');
+  const isPasswordRecoveryRoute = location === '/esqueci-senha' || location === '/redefinir-senha';
   const hasInviteContext = Boolean(new URLSearchParams(window.location.search).get('convite'));
 
-  if (!session && location !== '/login' && location !== '/cadastro' && !isInviteRoute) {
+  if (!session && location !== '/login' && location !== '/cadastro' && !isPasswordRecoveryRoute && !isInviteRoute) {
     return <Redirect to="/login" />;
   }
 
-  if (session && profile && profile.role === null && location !== '/onboarding' && !isInviteRoute && !(hasInviteContext && (location === '/login' || location === '/cadastro'))) {
+  if (session && profile && profile.role === null && location !== '/onboarding' && !isPasswordRecoveryRoute && !isInviteRoute && !(hasInviteContext && (location === '/login' || location === '/cadastro'))) {
     return <Redirect to="/onboarding" />;
   }
 
@@ -86,11 +90,13 @@ function MainRouter() {
   }
 
   // Public/Unwrapped routes
-  if (location === '/login' || location === '/cadastro') {
+  if (location === '/login' || location === '/cadastro' || isPasswordRecoveryRoute) {
     return (
       <Switch>
         <Route path="/login" component={Login} />
         <Route path="/cadastro" component={Cadastro} />
+        <Route path="/esqueci-senha" component={EsqueciSenha} />
+        <Route path="/redefinir-senha" component={RedefinirSenha} />
       </Switch>
     );
   }
@@ -139,7 +145,8 @@ function MainRouter() {
   );
 }
 
-function App() {
+function AppContent() {
+  const { theme } = useTheme();
   const [showSplash, setShowSplash] = useState(true);
 
   useEffect(() => {
@@ -163,7 +170,7 @@ function App() {
             )}
             <Toaster
               position="top-center"
-              theme="dark"
+              theme={theme}
               richColors
               icons={{
                 success: <CheckCircle2 className="w-4 h-4" />,
@@ -176,6 +183,14 @@ function App() {
         </AuthProvider>
       </TooltipProvider>
     </QueryClientProvider>
+  );
+}
+
+function App() {
+  return (
+    <ThemeProvider>
+      <AppContent />
+    </ThemeProvider>
   );
 }
 

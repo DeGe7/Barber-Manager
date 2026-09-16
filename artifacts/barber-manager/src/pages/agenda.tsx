@@ -96,7 +96,7 @@ export default function Agenda() {
     return null;
   };
 
-  const handleAddAppt = (e: React.FormEvent) => {
+  const handleAddAppt = async (e: React.FormEvent) => {
     e.preventDefault();
     const resolvedProfId = ownProfessionalId || apptForm.profId;
     const serviceItem = config.services.find(s => s.name === apptForm.service && s.isActive);
@@ -104,7 +104,7 @@ export default function Agenda() {
     const conflict = checkConflicts(selectedDate, apptForm.time, resolvedProfId, apptForm.service);
     if (conflict) { toast.error(conflict); return; }
 
-    addAppointment({
+    if (!await addAppointment({
       date: selectedDate,
       time: apptForm.time,
       client: apptForm.client,
@@ -117,7 +117,7 @@ export default function Agenda() {
       tip: 0,
       products: [],
       payMethod: 'pix',
-    });
+    })) return;
     toast.success('Agendamento criado');
     setIsApptOpen(false);
   };
@@ -133,18 +133,18 @@ export default function Agenda() {
     setIsEditOpen(true);
   };
 
-  const handleEditAppt = (e: React.FormEvent) => {
+  const handleEditAppt = async (e: React.FormEvent) => {
     e.preventDefault();
     const resolvedEditProfId = ownProfessionalId || editForm.profId;
     if (!editAppt || !editForm.client || !resolvedEditProfId) { toast.error('Preencha os campos obrigatórios'); return; }
     const conflict = checkConflicts(editAppt.date, editForm.time, resolvedEditProfId, editForm.service, editAppt.id);
     if (conflict) { toast.error(conflict); return; }
-    updateAppointment(editAppt.id, {
+    if (!await updateAppointment(editAppt.id, {
       client: editForm.client, clientPhone: editForm.phone, professionalId: resolvedEditProfId,
       service: editForm.service, time: editForm.time,
       value: editForm.value,
       duration: svcDur(editForm.service),
-    });
+    })) return;
     toast.success('Agendamento atualizado');
     setIsEditOpen(false);
   };
@@ -152,17 +152,17 @@ export default function Agenda() {
   const [isBlockOpen, setIsBlockOpen] = useState(false);
   const [blockForm, setBlockForm] = useState({ profId: '', reason: 'Folga', fullDay: true, slots: [] as string[], notes: '' });
 
-  const handleAddBlock = (e: React.FormEvent) => {
+  const handleAddBlock = async (e: React.FormEvent) => {
     e.preventDefault();
     const resolvedBlockProfId = ownProfessionalId || blockForm.profId;
     if (!resolvedBlockProfId) { toast.error('Selecione o profissional'); return; }
-    addBlock({
+    if (!await addBlock({
       date: selectedDate,
       professionalId: resolvedBlockProfId,
       reason: blockForm.reason,
       slots: blockForm.fullDay ? [] : blockForm.slots,
       notes: blockForm.notes
-    });
+    })) return;
     toast.success('Horário bloqueado');
     setIsBlockOpen(false);
   };
@@ -175,20 +175,23 @@ export default function Agenda() {
   };
 
   const nowTime = () => new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-  const checkIn = (a: typeof appointments[0]) => {
+  const checkIn = async (a: typeof appointments[0]) => {
     if (a.status !== 'pending' && a.status !== 'confirmed') return;
-    updateAppointment(a.id, { status: 'checked_in', checkedInAt: nowTime() });
-    toast.success(`${a.client} está em atendimento`);
+    if (await updateAppointment(a.id, { status: 'checked_in', checkedInAt: nowTime() })) {
+      toast.success(`${a.client} está em atendimento`);
+    }
   };
-  const finishAppointment = (a: typeof appointments[0]) => {
+  const finishAppointment = async (a: typeof appointments[0]) => {
     if (a.status !== 'checked_in') return;
-    updateAppointment(a.id, { status: 'completed', completedAt: nowTime() });
-    toast.success(`Atendimento de ${a.client} finalizado`);
+    if (await updateAppointment(a.id, { status: 'completed', completedAt: nowTime() })) {
+      toast.success(`Atendimento de ${a.client} finalizado`);
+    }
   };
-  const markNoShow = (a: typeof appointments[0]) => {
+  const markNoShow = async (a: typeof appointments[0]) => {
     if (a.status !== 'pending' && a.status !== 'confirmed') return;
-    updateAppointment(a.id, { status: 'no_show' });
-    toast.success(`${a.client} marcado como falta`);
+    if (await updateAppointment(a.id, { status: 'no_show' })) {
+      toast.success(`${a.client} marcado como falta`);
+    }
   };
 
   const mobileAppointments = [...dayAppointments]
@@ -492,7 +495,7 @@ export default function Agenda() {
                         <AlertDialogTrigger asChild><button aria-label="Remover bloqueio de dia inteiro" className="text-destructive hover:bg-destructive/20 p-1 rounded transition-all hover:scale-105"><Trash2 className="w-4 h-4"/></button></AlertDialogTrigger>
                         <AlertDialogContent className="bg-brand-surface border-brand-border text-foreground">
                           <AlertDialogHeader><AlertDialogTitle>Remover bloqueio?</AlertDialogTitle><AlertDialogDescription>Deseja remover este bloqueio?</AlertDialogDescription></AlertDialogHeader>
-                          <AlertDialogFooter><AlertDialogCancel className="bg-brand-bg text-foreground border-brand-border hover:bg-brand-border">Cancelar</AlertDialogCancel><AlertDialogAction onClick={() => {removeBlock(b.id); toast.success('Removido');}} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Remover</AlertDialogAction></AlertDialogFooter>
+                          <AlertDialogFooter><AlertDialogCancel className="bg-brand-bg text-foreground border-brand-border hover:bg-brand-border">Cancelar</AlertDialogCancel><AlertDialogAction onClick={async () => {if (await removeBlock(b.id)) toast.success('Removido');}} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Remover</AlertDialogAction></AlertDialogFooter>
                         </AlertDialogContent>
                       </AlertDialog>
                     </div>
@@ -520,7 +523,7 @@ export default function Agenda() {
                             <AlertDialogTrigger asChild><button aria-label="Remover bloqueio de horário" className="text-destructive hover:bg-destructive/20 p-1 rounded transition-all hover:scale-105"><Trash2 className="w-3 h-3"/></button></AlertDialogTrigger>
                             <AlertDialogContent className="bg-brand-surface border-brand-border text-foreground">
                               <AlertDialogHeader><AlertDialogTitle>Remover bloqueio?</AlertDialogTitle><AlertDialogDescription>Deseja remover este bloqueio?</AlertDialogDescription></AlertDialogHeader>
-                              <AlertDialogFooter><AlertDialogCancel className="bg-brand-bg text-foreground border-brand-border hover:bg-brand-border">Cancelar</AlertDialogCancel><AlertDialogAction onClick={() => {removeBlock(b.id); toast.success('Removido');}} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Remover</AlertDialogAction></AlertDialogFooter>
+                              <AlertDialogFooter><AlertDialogCancel className="bg-brand-bg text-foreground border-brand-border hover:bg-brand-border">Cancelar</AlertDialogCancel><AlertDialogAction onClick={async () => {if (await removeBlock(b.id)) toast.success('Removido');}} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Remover</AlertDialogAction></AlertDialogFooter>
                             </AlertDialogContent>
                           </AlertDialog>
                         </div>
@@ -542,14 +545,13 @@ export default function Agenda() {
                             </div>
                             <select 
                               value={a.status} 
-                              onChange={(e) => {
+                               onChange={async (e) => {
                                 const ns = e.target.value as ApptStatus;
-                                updateAppointment(a.id, {
+                                 if (await updateAppointment(a.id, {
                                   status: ns,
                                   ...(ns === 'checked_in' && !a.checkedInAt ? { checkedInAt: nowTime() } : {}),
                                   ...(ns === 'completed' && !a.completedAt ? { completedAt: nowTime() } : {}),
-                                });
-                                toast.success('Status atualizado');
+                                 })) toast.success('Status atualizado');
                               }}
                               className="text-xs bg-transparent border border-brand-border rounded px-1 py-0.5 outline-none cursor-pointer"
                             >
@@ -574,7 +576,7 @@ export default function Agenda() {
                               <AlertDialogTrigger asChild><button aria-label={`Excluir agendamento de ${a.client}`} className="text-xs text-destructive flex items-center gap-1 ml-auto hover:underline"><Trash2 className="w-3 h-3" /> Excluir</button></AlertDialogTrigger>
                               <AlertDialogContent className="bg-brand-surface border-brand-border text-foreground">
                                 <AlertDialogHeader><AlertDialogTitle>Excluir agendamento?</AlertDialogTitle><AlertDialogDescription>Essa ação não pode ser desfeita.</AlertDialogDescription></AlertDialogHeader>
-                                <AlertDialogFooter><AlertDialogCancel className="bg-brand-bg text-foreground border-brand-border hover:bg-brand-border">Cancelar</AlertDialogCancel><AlertDialogAction onClick={() => {removeAppointment(a.id); toast.success('Excluído');}} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Excluir</AlertDialogAction></AlertDialogFooter>
+                                <AlertDialogFooter><AlertDialogCancel className="bg-brand-bg text-foreground border-brand-border hover:bg-brand-border">Cancelar</AlertDialogCancel><AlertDialogAction onClick={async () => {if (await removeAppointment(a.id)) toast.success('Excluído');}} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Excluir</AlertDialogAction></AlertDialogFooter>
                               </AlertDialogContent>
                             </AlertDialog>
                           </div>

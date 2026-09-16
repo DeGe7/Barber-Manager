@@ -43,3 +43,14 @@ O app inclui dashboard, agenda, controle diário, clientes, profissionais, venda
 
 - Sem o schema Supabase aplicado, o login continua acessível, mas o onboarding e as telas protegidas informarão que o banco ainda não está configurado.
 - O build do artefato exige que o workflow forneça `PORT` e `BASE_PATH`; use o workflow do artefato em vez de executar o Vite sem essas variáveis.
+- Em produção, login e cadastro exigem `VITE_TURNSTILE_SITE_KEY`; a secret key correspondente deve ficar somente na configuração CAPTCHA do Supabase Auth.
+- O Supabase Auth aplica o rate limit dos endpoints de autenticação; a interface também bloqueia novas tentativas por 60 segundos após receber um erro de limite.
+
+## Baseline congelado
+
+- O baseline da fonte aprovado do Supabase está documentado em `supabase/BASELINE.md`; a paridade de produção pendente também está registrada ali.
+- `supabase/schema.sql` permanece a fonte única do schema e está marcado como
+  `app_schema_version = 2026-09-04`.
+- A partir deste ponto, mudanças em tabelas, colunas, enums, RPCs, triggers,
+  RLS, Storage ou contratos exigem planejamento explícito e nova validação
+  completa antes de serem aplicadas em qualquer ambiente.

@@ -16,7 +16,7 @@ export default function Produtos() {
   const [isAdding, setIsAdding] = useState(false);
   const [newP, setNewP] = useState({ name: '', category: '', price: '', cost: '', stock: '', minStock: '' });
 
-  const handleAdd = (e: React.FormEvent) => {
+  const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     const price = Number(newP.price);
     const cost = Number(newP.cost);
@@ -27,10 +27,10 @@ export default function Produtos() {
       toast.error('Informe valores válidos e não negativos');
       return;
     }
-    addProduct({
+    if (!await addProduct({
       name: newP.name, category: newP.category || 'Geral', price, cost,
       stock, minStock, isActive: true
-    });
+    })) return;
     toast.success('Produto adicionado');
     setIsAdding(false);
     setNewP({ name: '', category: '', price: '', cost: '', stock: '', minStock: '' });
@@ -40,7 +40,7 @@ export default function Produtos() {
   const [editForm, setEditForm] = useState<any>({});
   const startEdit = (p: Product) => { setEditingId(p.id); setEditForm({ ...p }); };
   const cancelEdit = () => { setEditingId(null); };
-  const saveEdit = () => {
+  const saveEdit = async () => {
     const price = Number(editForm.price);
     const cost = Number(editForm.cost);
     const minStock = Number(editForm.minStock);
@@ -48,15 +48,15 @@ export default function Produtos() {
       toast.error('Informe valores válidos e não negativos');
       return;
     }
-    updateProduct(editingId!, { name: editForm.name, category: editForm.category, price, cost, minStock });
+    if (!await updateProduct(editingId!, { name: editForm.name, category: editForm.category, price, cost, minStock })) return;
     toast.success('Salvo');
     setEditingId(null);
   };
 
   const [restockQs, setRestockQs] = useState<Record<string, string>>({});
-  const handleRestock = (id: string) => {
+  const handleRestock = async (id: string) => {
     const q = Number(restockQs[id]);
-    if(q > 0) { restock(id, q); toast.success('Estoque atualizado'); setRestockQs({...restockQs, [id]: ''}); }
+    if(q > 0 && await restock(id, q)) { toast.success('Estoque atualizado'); setRestockQs({...restockQs, [id]: ''}); }
   };
 
   return (
@@ -146,7 +146,7 @@ export default function Produtos() {
                           ) : (
                             <div className="flex justify-end gap-1">
                               <button aria-label={`Editar ${p.name}`} onClick={()=>startEdit(p)} className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-brand-bg rounded transition-all hover:scale-105"><Edit2 className="w-4 h-4"/></button>
-                              <AlertDialog><AlertDialogTrigger asChild><button aria-label={`Excluir ${p.name}`} className="p-1.5 text-destructive hover:bg-destructive/10 rounded transition-all hover:scale-105"><Trash2 className="w-4 h-4"/></button></AlertDialogTrigger><AlertDialogContent className="bg-brand-surface border-brand-border text-foreground"><AlertDialogHeader><AlertDialogTitle>Excluir produto?</AlertDialogTitle><AlertDialogDescription>Deseja excluir este produto?</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel className="bg-brand-bg border-brand-border text-foreground">Cancelar</AlertDialogCancel><AlertDialogAction className="bg-destructive text-white" onClick={()=>{removeProduct(p.id);toast.success('Excluído');}}>Excluir</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+                              <AlertDialog><AlertDialogTrigger asChild><button aria-label={`Excluir ${p.name}`} className="p-1.5 text-destructive hover:bg-destructive/10 rounded transition-all hover:scale-105"><Trash2 className="w-4 h-4"/></button></AlertDialogTrigger><AlertDialogContent className="bg-brand-surface border-brand-border text-foreground"><AlertDialogHeader><AlertDialogTitle>Excluir produto?</AlertDialogTitle><AlertDialogDescription>Deseja excluir este produto?</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel className="bg-brand-bg border-brand-border text-foreground">Cancelar</AlertDialogCancel><AlertDialogAction className="bg-destructive text-white" onClick={async()=>{if(await removeProduct(p.id)) toast.success('Excluído');}}>Excluir</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
                             </div>
                           )}
                         </td>
@@ -194,7 +194,7 @@ export default function Produtos() {
                       </div>
                       <div className="flex gap-1">
                         <button aria-label={`Editar ${p.name}`} onClick={()=>startEdit(p)} className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-brand-surface rounded transition-all hover:scale-105"><Edit2 className="w-4 h-4"/></button>
-                        <AlertDialog><AlertDialogTrigger asChild><button aria-label={`Excluir ${p.name}`} className="p-1.5 text-destructive hover:bg-destructive/10 rounded transition-all hover:scale-105"><Trash2 className="w-4 h-4"/></button></AlertDialogTrigger><AlertDialogContent className="bg-brand-surface border-brand-border text-foreground"><AlertDialogHeader><AlertDialogTitle>Excluir produto?</AlertDialogTitle><AlertDialogDescription>Deseja excluir?</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel className="bg-brand-bg border-brand-border text-foreground">Cancelar</AlertDialogCancel><AlertDialogAction className="bg-destructive text-white" onClick={()=>{removeProduct(p.id);toast.success('Excluído');}}>Excluir</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+                        <AlertDialog><AlertDialogTrigger asChild><button aria-label={`Excluir ${p.name}`} className="p-1.5 text-destructive hover:bg-destructive/10 rounded transition-all hover:scale-105"><Trash2 className="w-4 h-4"/></button></AlertDialogTrigger><AlertDialogContent className="bg-brand-surface border-brand-border text-foreground"><AlertDialogHeader><AlertDialogTitle>Excluir produto?</AlertDialogTitle><AlertDialogDescription>Deseja excluir?</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel className="bg-brand-bg border-brand-border text-foreground">Cancelar</AlertDialogCancel><AlertDialogAction className="bg-destructive text-white" onClick={async()=>{if(await removeProduct(p.id)) toast.success('Excluído');}}>Excluir</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
                       </div>
                     </div>
                   </div>

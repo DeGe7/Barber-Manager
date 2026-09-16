@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { useAuth } from '@/auth/auth';
+import CaptchaChallenge, { captchaRequired } from '@/auth/captcha';
+import { isAuthRateLimitError, useAuthRateLimit } from '@/auth/rate-limit';
 import { Scissors } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -11,6 +13,8 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const { isCoolingDown, remainingSeconds, startCooldown } = useAuthRateLimit();
   const inviteToken = new URLSearchParams(window.location.search).get('convite') || '';
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -19,10 +23,18 @@ export default function Login() {
       toast.error('Preencha e-mail e senha.');
       return;
     }
+    if (captchaRequired && !captchaToken) {
+      toast.error('Conclua a verificação antiabuso.');
+      return;
+    }
+    if (isCoolingDown) {
+      toast.error(`Aguarde ${remainingSeconds}s antes de tentar novamente.`);
+      return;
+    }
     setLoading(true);
     setErrorMessage('');
     try {
-      await signIn(email, password);
+      await signIn(email, password, captchaToken);
       if (inviteToken) await acceptInvitation(inviteToken);
       toast.success('Bem-vindo de volta!');
       setLocation('/dashboard');
@@ -30,6 +42,7 @@ export default function Login() {
       const message = error instanceof Error ? error.message : 'Não foi possível entrar.';
       setErrorMessage(message);
       toast.error(message);
+      if (isAuthRateLimitError(error)) startCooldown();
     } finally {
       setLoading(false);
     }
@@ -77,7 +90,10 @@ export default function Login() {
             </div>
             
             <div className="space-y-2">
-              <label htmlFor="password" className="text-sm font-medium text-foreground">Senha</label>
+               <div className="flex items-center justify-between gap-3">
+                 <label htmlFor="password" className="text-sm font-medium text-foreground">Senha</label>
+                 <Link href="/esqueci-senha" className="text-xs text-brand-gold hover:underline">Esqueci minha senha</Link>
+               </div>
               <input 
                 id="password"
                 name="password"
@@ -91,12 +107,13 @@ export default function Login() {
               />
             </div>
 
+            <CaptchaChallenge onTokenChange={setCaptchaToken} />
             <button 
               type="submit" 
-              disabled={loading}
+              disabled={loading || isCoolingDown}
               className="w-full bg-brand-gold text-brand-bg font-bold py-3 px-4 rounded-lg hover:bg-brand-gold/90 hover:-translate-y-0.5 active:translate-y-0 transition-all disabled:opacity-50 disabled:cursor-not-allowed mt-4 shadow-[0_0_15px_rgba(201,168,76,0.2)]"
             >
-              {loading ? 'Entrando...' : 'Entrar'}
+              {loading ? 'Entrando...' : isCoolingDown ? `Aguarde ${remainingSeconds}s` : 'Entrar'}
             </button>
           </form>
           <p className="text-center text-sm text-muted-foreground mt-6">
