@@ -8,12 +8,55 @@ begin;
 
 create extension if not exists pgtap;
 
-select plan(93);
+select plan(109);
 
 select is(
   (select count(*) from storage.buckets where id in ('avatars', 'logos') and public = false),
   2::bigint,
   'avatar and logo buckets are private'
+);
+select is(
+  (select count(*) from pg_policies
+    where schemaname = 'public'
+      and tablename = 'organization_settings'
+      and policyname = 'organization_settings_access'),
+  0::bigint,
+  'legacy organization settings policy is removed'
+);
+select is(
+  (select count(*) from pg_policies
+    where schemaname = 'public'
+      and tablename = 'organization_settings'
+      and policyname = 'organization_settings_empresa_access'),
+  0::bigint,
+  'legacy organization settings empresa policy is removed'
+);
+select ok(
+  (select pg_get_functiondef(p.oid) like '%extensions.digest%'
+     from pg_proc p
+     join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname = 'create_organization_invitation'
+    limit 1),
+  'invitation creation hashes with extensions.digest'
+);
+select ok(
+  (select pg_get_functiondef(p.oid) like '%extensions.digest%'
+     from pg_proc p
+     join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname = 'accept_organization_invitation'
+    limit 1),
+  'invitation acceptance hashes with extensions.digest'
+);
+select ok(
+  (select pg_get_functiondef(p.oid) like '%extensions.gen_random_bytes%'
+     from pg_proc p
+     join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname = 'create_organization_invitation'
+    limit 1),
+  'invitation creation generates tokens with extensions.gen_random_bytes'
 );
 
 -- Seed two organizations, one manager, one seller and one operational
@@ -80,6 +123,14 @@ insert into public.mentoria_sessions (id, date, client, seller_id, organization_
   ('mentoria-a-operator', '2026-08-27', 'Cliente Operacional A', 'professional-a-operator', '11111111-1111-1111-1111-111111111111'),
   ('mentoria-b-seller', '2026-08-27', 'Cliente Mentoria B', 'professional-b-seller', '22222222-2222-2222-2222-222222222222');
 
+insert into public.expenses (id, date, description, amount, category, organization_id) values
+  ('expense-a', '2026-08-27', 'Despesa A', 100, 'Outros', '11111111-1111-1111-1111-111111111111'),
+  ('expense-b', '2026-08-27', 'Despesa B', 200, 'Outros', '22222222-2222-2222-2222-222222222222');
+
+insert into public.incomes (id, date, description, amount, organization_id) values
+  ('income-a', '2026-08-27', 'Receita A', 300, '11111111-1111-1111-1111-111111111111'),
+  ('income-b', '2026-08-27', 'Receita B', 400, '22222222-2222-2222-2222-222222222222');
+
 insert into public.subscription_plans (id, name, price, organization_id) values
   ('plan-a', 'Plano A', 100, '11111111-1111-1111-1111-111111111111'),
   ('plan-b', 'Plano B', 200, '22222222-2222-2222-2222-222222222222');
@@ -109,6 +160,15 @@ select is((select count(*) from public.prothesis_sales), 2::bigint, 'manager rea
 select is((select count(*) from public.mentoria_sessions), 2::bigint, 'manager reads all mentoring sessions in own organization');
 select is((select count(*) from public.subscription_plans), 1::bigint, 'manager reads plans in own organization');
 select is((select count(*) from public.subscribers), 2::bigint, 'manager reads subscriptions in own organization');
+select is((select count(*) from public.expenses), 1::bigint, 'manager reads expenses in own organization');
+select is((select count(*) from public.incomes), 1::bigint, 'manager reads incomes in own organization');
+select is((select count(*) from public.finance_entry_changes), 0::bigint, 'finance history starts empty');
+select lives_ok($$update public.incomes set description = 'Receita A corrigida', amount = 350 where id = 'income-a'$$, 'manager can update an income and create history');
+select lives_ok($$update public.expenses set category = 'Marketing', amount = 125 where id = 'expense-a'$$, 'manager can update an expense and create history');
+select is((select count(*) from public.finance_entry_changes), 2::bigint, 'finance history records each financial update');
+select is((select previous_values ->> 'amount' from public.finance_entry_changes where entry_id = 'income-a'), '300', 'income history stores the previous amount');
+select is((select new_values ->> 'amount' from public.finance_entry_changes where entry_id = 'income-a'), '350', 'income history stores the new amount');
+select is((select changed_by_name from public.finance_entry_changes where entry_id = 'expense-a'), 'Gestor A', 'finance history stores the actor name');
 
 select lives_ok($$insert into public.appointments (id, date, time, client, professional_id, service) values ('manager-appointment', '2026-08-28', '09:00', 'Cliente Gestor', 'professional-a-operator', 'Corte')$$, 'manager can create an appointment for any own professional');
 select lives_ok($$update public.appointments set professional_id = 'professional-a-seller' where id = 'manager-appointment'$$, 'manager can reassign an appointment within own organization');
@@ -154,6 +214,7 @@ select is((select count(*) from public.prothesis_sales), 1::bigint, 'seller read
 select is((select count(*) from public.mentoria_sessions), 1::bigint, 'seller reads only own mentoring sessions');
 select is((select count(*) from public.subscription_plans), 0::bigint, 'seller cannot read subscription plans');
 select is((select count(*) from public.subscribers), 0::bigint, 'seller cannot read subscriptions');
+select is((select count(*) from public.finance_entry_changes), 0::bigint, 'seller cannot read finance history');
 select lives_ok($$insert into public.appointments (id, date, time, client, professional_id, service) values ('seller-appointment', '2026-08-28', '09:00', 'Cliente Vendedor', 'professional-a-seller', 'Prótese')$$, 'seller can create own appointment');
 select lives_ok($$update public.appointments set status = 'confirmed' where id = 'seller-appointment'$$, 'seller can update own appointment');
 select lives_ok($$insert into public.blocks (id, date, professional_id, reason) values ('seller-block', '2026-08-28', 'professional-a-seller', 'Pausa')$$, 'seller can create own block');
@@ -208,6 +269,7 @@ select is((select count(*) from public.prothesis_sales where organization_id = '
 select is((select count(*) from public.mentoria_sessions where organization_id = '22222222-2222-2222-2222-222222222222'), 0::bigint, 'manager cannot read mentoring from another organization');
 select is((select count(*) from public.subscription_plans where organization_id = '22222222-2222-2222-2222-222222222222'), 0::bigint, 'manager cannot read plans from another organization');
 select is((select count(*) from public.subscribers where organization_id = '22222222-2222-2222-2222-222222222222'), 0::bigint, 'manager cannot read subscriptions from another organization');
+select is((select count(*) from public.finance_entry_changes where organization_id = '22222222-2222-2222-2222-222222222222'), 0::bigint, 'manager cannot read finance history from another organization');
 select throws_ok($$insert into public.appointments (id, date, time, client, professional_id, service, organization_id) values ('manager-cross-org', '2026-08-28', '09:00', 'Cliente', 'professional-b-seller', 'Prótese', '22222222-2222-2222-2222-222222222222')$$, null, null, 'manager cannot create a row in another organization');
 select throws_ok($$update public.appointments set organization_id = '22222222-2222-2222-2222-222222222222' where id = 'appointment-a-seller'$$, null, null, 'manager cannot move a row to another organization');
 
