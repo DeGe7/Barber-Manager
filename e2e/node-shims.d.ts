@@ -2,6 +2,8 @@ declare const process: {
   env: Record<string, string | undefined>;
 };
 
+declare function setInterval(callback: () => void, delay: number): unknown;
+
 declare module 'node:fs' {
   export function chmodSync(path: string, mode: number): void;
   export function existsSync(path: string): boolean;
