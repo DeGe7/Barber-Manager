@@ -1,6 +1,7 @@
 import { supabase } from '@/services/supabaseClient';
 import { getStorageObjectPath } from '@/services/storage';
 import { formatTimestampDateKey } from './date';
+import type { ExpenseCategory, PayMethod, SubscriptionPayment, SubscriptionPaymentStatus, Subscriber } from './store';
 
 type Row = Record<string, unknown>;
 
@@ -17,6 +18,49 @@ export interface OrganizationInvitation {
 
 export interface CreatedInvitation extends OrganizationInvitation {
   token: string;
+}
+
+export type CommunicationChannel = 'whatsapp' | 'email';
+export type CommunicationKind = 'campaign' | 'invitation';
+export type CommunicationStatus = 'initiated' | 'failed';
+
+export interface CommunicationSend {
+  id: string;
+  channel: CommunicationChannel;
+  kind: CommunicationKind;
+  campaignId?: string;
+  campaignLabel?: string;
+  recipientId?: string;
+  recipientName: string;
+  recipientAddress: string;
+  message: string;
+  status: CommunicationStatus;
+  failureReason?: string;
+  consentedAt: string;
+  createdAt: string;
+}
+
+export interface FinanceHistoryItem {
+  id: string;
+  entryType: 'income' | 'expense';
+  entryId: string;
+  changedBy: string;
+  changedByName: string;
+  changedAt: string;
+  previousValues: {
+    date: string;
+    description: string;
+    amount: number;
+    category?: ExpenseCategory;
+    paymentMethod?: PayMethod;
+  };
+  newValues: {
+    date: string;
+    description: string;
+    amount: number;
+    category?: ExpenseCategory;
+    paymentMethod?: PayMethod;
+  };
 }
 
 function client() {
@@ -132,7 +176,8 @@ function mapExpense(row: Row) {
     date: String(row.date ?? ''),
     description: String(row.description ?? ''),
     amount: Number(row.amount ?? 0),
-    category: row.category,
+    category: String(row.category ?? 'Outros') as ExpenseCategory,
+    ...(row.payment_method ? { paymentMethod: row.payment_method as PayMethod } : {}),
   };
 }
 
@@ -142,6 +187,29 @@ function mapIncome(row: Row) {
     date: String(row.date ?? ''),
     description: String(row.description ?? ''),
     amount: Number(row.amount ?? 0),
+  };
+}
+
+function mapFinanceHistory(row: Row): FinanceHistoryItem {
+  const mapValues = (value: unknown): FinanceHistoryItem['previousValues'] => {
+    const values = (value ?? {}) as Row;
+    return {
+      date: String(values.date ?? ''),
+      description: String(values.description ?? ''),
+      amount: Number(values.amount ?? 0),
+      ...(values.category ? { category: String(values.category) as ExpenseCategory } : {}),
+      ...(values.payment_method ? { paymentMethod: values.payment_method as PayMethod } : {}),
+    };
+  };
+  return {
+    id: String(row.id),
+    entryType: row.entry_type as FinanceHistoryItem['entryType'],
+    entryId: String(row.entry_id ?? ''),
+    changedBy: String(row.changed_by ?? ''),
+    changedByName: String(row.changed_by_name ?? 'Usuário'),
+    changedAt: String(row.changed_at ?? ''),
+    previousValues: mapValues(row.previous_values),
+    newValues: mapValues(row.new_values),
   };
 }
 
@@ -187,7 +255,7 @@ function mapPlan(row: Row) {
   };
 }
 
-function mapSubscriber(row: Row) {
+function mapSubscriber(row: Row): Subscriber {
   return {
     id: String(row.id),
     name: String(row.name ?? ''),
@@ -196,7 +264,20 @@ function mapSubscriber(row: Row) {
     professionalId: String(row.professional_id ?? ''),
     startDate: String(row.start_date ?? ''),
     nextPayment: String(row.next_payment ?? ''),
-    status: row.status,
+    status: row.status as Subscriber['status'],
+  };
+}
+
+function mapSubscriptionPayment(row: Row): SubscriptionPayment {
+  return {
+    id: String(row.id),
+    subscriberId: String(row.subscriber_id ?? ''),
+    dueDate: String(row.due_date ?? ''),
+    paidAt: row.paid_at ? String(row.paid_at) : undefined,
+    amount: Number(row.amount ?? 0),
+    paymentMethod: row.payment_method as SubscriptionPayment['paymentMethod'],
+    status: row.status as SubscriptionPaymentStatus,
+    note: row.note ? String(row.note) : undefined,
   };
 }
 
@@ -209,6 +290,24 @@ function mapInvitation(row: Row): OrganizationInvitation {
     expiresAt: String(row.expires_at ?? ''),
     acceptedAt: row.accepted_at ? String(row.accepted_at) : undefined,
     revokedAt: row.revoked_at ? String(row.revoked_at) : undefined,
+    createdAt: String(row.created_at ?? ''),
+  };
+}
+
+function mapCommunicationSend(row: Row): CommunicationSend {
+  return {
+    id: String(row.id),
+    channel: row.channel as CommunicationChannel,
+    kind: row.kind as CommunicationKind,
+    campaignId: row.campaign_id ? String(row.campaign_id) : undefined,
+    campaignLabel: row.campaign_label ? String(row.campaign_label) : undefined,
+    recipientId: row.recipient_id ? String(row.recipient_id) : undefined,
+    recipientName: String(row.recipient_name ?? ''),
+    recipientAddress: String(row.recipient_address ?? ''),
+    message: String(row.message ?? ''),
+    status: row.status as CommunicationStatus,
+    failureReason: row.failure_reason ? String(row.failure_reason) : undefined,
+    consentedAt: String(row.consented_at ?? ''),
     createdAt: String(row.created_at ?? ''),
   };
 }
@@ -266,6 +365,46 @@ export const api = {
       const { error } = await client().rpc('revoke_organization_invitation', { p_invitation_id: id });
       if (error) throw new Error(`Não foi possível revogar o convite: ${error.message}`);
     },
+  },
+  communication: {
+    list: async (): Promise<CommunicationSend[]> => {
+      await organizationId();
+      const { data, error } = await client()
+        .from('communication_sends')
+        .select('id, channel, kind, campaign_id, campaign_label, recipient_id, recipient_name, recipient_address, message, status, failure_reason, consented_at, created_at')
+        .order('created_at', { ascending: false })
+        .limit(40);
+      if (error) throw new Error(`Não foi possível carregar o histórico de envios: ${error.message}`);
+      return (data ?? []).map(mapCommunicationSend);
+    },
+    log: async (body: {
+      channel: CommunicationChannel;
+      kind: CommunicationKind;
+      campaignId?: string;
+      campaignLabel?: string;
+      recipientId?: string;
+      recipientName: string;
+      recipientAddress: string;
+      message: string;
+      status: CommunicationStatus;
+      failureReason?: string;
+    }): Promise<CommunicationSend> => mapCommunicationSend(await insertRow('communication_sends', {
+      channel: body.channel,
+      kind: body.kind,
+      campaign_id: body.campaignId,
+      campaign_label: body.campaignLabel,
+      recipient_id: body.recipientId,
+      recipient_name: body.recipientName,
+      recipient_address: body.recipientAddress,
+      message: body.message,
+      status: body.status,
+      failure_reason: body.failureReason,
+      consented_at: new Date().toISOString(),
+    })),
+    markFailed: async (id: string, failureReason: string): Promise<CommunicationSend> => mapCommunicationSend(await updateRow('communication_sends', id, {
+      status: 'failed',
+      failure_reason: failureReason,
+    })),
   },
   auth: {
     acceptInvitation: async (token: string): Promise<{ organizationId: string; role: string; professionalId: string }> => {
@@ -387,6 +526,11 @@ export const api = {
     list: async () => (await listRows('expenses', 'date')).map(mapExpense),
     create: async (body: Row) => mapExpense(await insertRow('expenses', {
       id: body.id, date: body.date, description: body.description, amount: body.amount, category: body.category,
+      payment_method: body.paymentMethod,
+    })),
+    update: async (id: string, body: Row) => mapExpense(await updateRow('expenses', id, {
+      date: body.date, description: body.description, amount: body.amount, category: body.category,
+      payment_method: body.paymentMethod,
     })),
     remove: (id: string) => removeRow('expenses', id),
   },
@@ -395,7 +539,14 @@ export const api = {
     create: async (body: Row) => mapIncome(await insertRow('incomes', {
       id: body.id, date: body.date, description: body.description, amount: body.amount,
     })),
+    update: async (id: string, body: Row) => mapIncome(await updateRow('incomes', id, {
+      date: body.date, description: body.description, amount: body.amount,
+    })),
     remove: (id: string) => removeRow('incomes', id),
+  },
+  financeHistory: {
+    list: async (): Promise<FinanceHistoryItem[]> =>
+      (await listRows('finance_entry_changes', 'changed_at')).map(mapFinanceHistory),
   },
   prothesisSales: {
     list: async () => (await listRows('prothesis_sales', 'date')).map(mapProthesisSale),
@@ -447,6 +598,36 @@ export const api = {
       start_date: body.startDate, next_payment: body.nextPayment, status: body.status,
     })),
     remove: (id: string) => removeRow('subscribers', id),
+  },
+  subscriptionPayments: {
+    list: async () => (await listRows('subscription_payments', 'due_date')).map(mapSubscriptionPayment),
+    setStatus: async (body: {
+      subscriberId: string;
+      dueDate: string;
+      status: SubscriptionPaymentStatus;
+      paidAt?: string;
+      amount: number;
+      paymentMethod?: string;
+      note?: string;
+    }): Promise<{ payment: SubscriptionPayment; subscriber: Subscriber; nextPayment?: SubscriptionPayment }> => {
+      await organizationId();
+      const { data, error } = await client().rpc('set_subscription_payment_status', {
+        p_subscriber_id: body.subscriberId,
+        p_due_date: body.dueDate,
+        p_status: body.status,
+        p_paid_at: body.paidAt ?? null,
+        p_amount: body.amount,
+        p_payment_method: body.paymentMethod ?? null,
+        p_note: body.note ?? null,
+      });
+      if (error) throw new Error(`Não foi possível atualizar a mensalidade: ${error.message}`);
+      const payload = data as Row;
+      return {
+        payment: mapSubscriptionPayment(payload.payment as Row),
+        subscriber: mapSubscriber(payload.subscriber as Row),
+        nextPayment: payload.next_payment ? mapSubscriptionPayment(payload.next_payment as Row) : undefined,
+      };
+    },
   },
   config: {
     get: async () => {
