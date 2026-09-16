@@ -27,3 +27,4 @@ packages = ["glib", "nss", "nspr", "atk", "at-spi2-atk", "cups", "dbus", "pango"
 
 [userenv.shared]
 VITE_SUPABASE_URL = "https://sadpftgyclmmpjlemnnz.supabase.co"
+VITE_TURNSTILE_SITE_KEY = "0x4AAAAAAE28TO42C4b479Hg"
