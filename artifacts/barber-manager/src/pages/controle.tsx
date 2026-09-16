@@ -9,7 +9,7 @@ import { formatDateKey } from '@/data/date';
 export default function Controle() {
   const { 
     professionals, products, appointments, expenses, config,
-    addAppointment, addExpense, sellProduct, isLoading
+    addAppointment, addExpense, sellProduct, restock, isLoading
   } = useStore();
   const { profile: session } = useAuth();
 
@@ -55,7 +55,7 @@ export default function Controle() {
     return sum + (p ? p.price * ap.quantity : 0);
   }, 0);
 
-  const handleRegisterAppt = (e: React.FormEvent) => {
+  const handleRegisterAppt = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!client || !resolvedProfId || !serviceItem) { toast.error('Preencha os campos obrigatórios'); return; }
     
@@ -93,12 +93,18 @@ export default function Controle() {
       }
     }
 
-    // All valid — apply stock deductions
+    // Persist stock deductions before creating the appointment. If any deduction
+    // fails, no appointment is created and the user can retry safely.
+    const deducted: Array<[string, number]> = [];
     for (const [productId, qty] of Object.entries(aggregated)) {
-      sellProduct(productId, qty);
+      if (!await sellProduct(productId, qty)) {
+        for (const [deductedId, deductedQty] of deducted) await restock(deductedId, deductedQty);
+        return;
+      }
+      deducted.push([productId, qty]);
     }
 
-    addAppointment({
+    if (!await addAppointment({
       date: today,
       time: currentTime,
       client,
@@ -112,22 +118,25 @@ export default function Controle() {
       payMethod,
       paymentSplits: normalizedPayments,
       notes
-    });
+    })) {
+      for (const [deductedId, deductedQty] of deducted) await restock(deductedId, deductedQty);
+      return;
+    }
 
     toast.success('Atendimento registrado!');
     setClient(''); setValue(''); setTip(''); setNotes(''); setApptProducts([]); setPaymentSplits([]);
   };
 
-  const handleAddExpense = (e: React.FormEvent) => {
+  const handleAddExpense = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!expDate || !expDesc || !expAmount) { toast.error('Preencha os campos obrigatórios'); return; }
     
-    addExpense({
+    if (!await addExpense({
       date: expDate,
       description: expDesc,
       amount: parseFloat(expAmount),
       category: expCategory
-    });
+    })) return;
     
     toast.success('Despesa registrada!');
     setExpDesc(''); setExpAmount(''); setExpDate(today); setExpCategory('Outros');
@@ -231,7 +240,7 @@ export default function Controle() {
                     <select value={payment.method} onChange={e => setPaymentSplits(items => items.map((item, i) => i === index ? { ...item, method: e.target.value as PayMethod } : item))} className="flex-1 bg-brand-bg border border-brand-border rounded-lg px-3 py-2 text-sm">
                       {config.paymentMethods.filter(p => p.isActive).map(paymentOption => <option key={paymentOption.key} value={paymentOption.key}>{paymentOption.label}</option>)}
                     </select>
-                    <input type="number" min="0" step="0.01" value={payment.amount} onChange={e => setPaymentSplits(items => items.map((item, i) => i === index ? { ...item, amount: Number(e.target.value) } : item))} className="w-28 bg-brand-bg border border-brand-border rounded-lg px-3 py-2 text-sm" aria-label={`Valor da forma ${index + 1}`} />
+                    <input type="number" min="0" step="0.01" value={payment.amount || ''} onChange={e => setPaymentSplits(items => items.map((item, i) => i === index ? { ...item, amount: Number(e.target.value) } : item))} className="w-28 bg-brand-bg border border-brand-border rounded-lg px-3 py-2 text-sm" aria-label={`Valor da forma ${index + 1}`} />
                     <button type="button" onClick={() => setPaymentSplits(items => items.filter((_, i) => i !== index))} className="px-2 text-destructive" aria-label="Remover forma de pagamento"><Trash2 className="w-4 h-4" /></button>
                   </div>
                 ))}
