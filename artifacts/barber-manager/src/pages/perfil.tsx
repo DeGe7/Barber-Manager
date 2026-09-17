@@ -1,11 +1,11 @@
 import { useRef, useState } from 'react';
 import { useAuth } from '@/auth/auth';
 import { getRoleLabel } from '@/auth/types';
-import { Camera, UserCircle, Upload, Save, X, Pencil } from 'lucide-react';
+import { Camera, UserCircle, Upload, Save, X, Pencil, LockKeyhole } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function Perfil() {
-  const { profile: session, setAvatar, setName } = useAuth();
+  const { profile: session, setAvatar, setName, updatePassword } = useAuth();
   const inputRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState(session?.avatar || '');
   const [draftAvatar, setDraftAvatar] = useState(session?.avatar || '');
@@ -13,6 +13,9 @@ export default function Perfil() {
   const [isEditing, setIsEditing] = useState(false);
   const [draftName, setDraftName] = useState(session?.name || '');
   const [isEditingName, setIsEditingName] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [passwordConfirmation, setPasswordConfirmation] = useState('');
+  const [isSavingPassword, setIsSavingPassword] = useState(false);
 
   if (!session) return null;
 
@@ -75,6 +78,30 @@ export default function Perfil() {
   const cancelName = () => {
     setDraftName(session.name);
     setIsEditingName(false);
+  };
+
+  const savePassword = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (newPassword.length < 6) {
+      toast.error('A senha deve ter pelo menos 6 caracteres.');
+      return;
+    }
+    if (newPassword !== passwordConfirmation) {
+      toast.error('As senhas não coincidem.');
+      return;
+    }
+
+    setIsSavingPassword(true);
+    try {
+      await updatePassword(newPassword);
+      setNewPassword('');
+      setPasswordConfirmation('');
+      toast.success('Senha atualizada com sucesso.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Não foi possível atualizar a senha.');
+    } finally {
+      setIsSavingPassword(false);
+    }
   };
 
   return (
@@ -141,6 +168,56 @@ export default function Perfil() {
             )}
           </div>
         </div>
+      </section>
+
+      <section className="bg-brand-surface border border-brand-border rounded-2xl p-6 md:p-8">
+        <div className="flex items-center gap-3 border-b border-brand-border/50 pb-4">
+          <LockKeyhole className="w-5 h-5 text-brand-gold" />
+          <div>
+            <h3 className="text-lg font-bold text-foreground">Segurança da conta</h3>
+            <p className="text-sm text-muted-foreground mt-1">Atualize sua senha sempre que precisar.</p>
+          </div>
+        </div>
+
+        <form onSubmit={savePassword} className="mt-6 space-y-4 max-w-xl">
+          <div className="space-y-2">
+            <label htmlFor="profile-new-password" className="text-sm font-medium text-foreground">Nova senha</label>
+            <input
+              id="profile-new-password"
+              type="password"
+              value={newPassword}
+              onChange={event => setNewPassword(event.target.value)}
+              autoComplete="new-password"
+              required
+              minLength={6}
+              className="w-full bg-brand-bg border border-brand-border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-gold focus:border-brand-gold text-foreground placeholder:text-muted-foreground transition-all"
+              placeholder="Mínimo de 6 caracteres"
+            />
+          </div>
+          <div className="space-y-2">
+            <label htmlFor="profile-password-confirmation" className="text-sm font-medium text-foreground">Confirmar nova senha</label>
+            <input
+              id="profile-password-confirmation"
+              type="password"
+              value={passwordConfirmation}
+              onChange={event => setPasswordConfirmation(event.target.value)}
+              autoComplete="new-password"
+              required
+              minLength={6}
+              className="w-full bg-brand-bg border border-brand-border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-gold focus:border-brand-gold text-foreground placeholder:text-muted-foreground transition-all"
+              placeholder="Repita sua nova senha"
+            />
+          </div>
+          <div className="flex justify-end">
+            <button
+              type="submit"
+              disabled={isSavingPassword}
+              className="bg-brand-gold text-brand-bg font-bold py-2.5 px-6 rounded-lg hover:bg-brand-gold/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSavingPassword ? 'Salvando...' : 'Atualizar senha'}
+            </button>
+          </div>
+        </form>
       </section>
     </div>
   );

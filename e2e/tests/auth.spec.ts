@@ -50,6 +50,11 @@ test.describe('autenticação e onboarding', () => {
     await loginAs(page, account);
     await expect(page.getByRole('link', { name: 'Abrir meu perfil' })).toBeVisible();
 
+    await page.goto('/perfil');
+    await expect(page.getByRole('heading', { name: 'Segurança da conta' })).toBeVisible();
+    await expect(page.getByLabel('Nova senha')).toBeVisible();
+    await expect(page.getByLabel('Confirmar nova senha')).toBeVisible();
+
     await page.reload();
     await expect(page.getByRole('link', { name: 'Abrir meu perfil' })).toBeVisible();
 
