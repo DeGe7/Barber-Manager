@@ -90,10 +90,7 @@ export default function Login() {
             </div>
             
             <div className="space-y-2">
-               <div className="flex items-center justify-between gap-3">
-                 <label htmlFor="password" className="text-sm font-medium text-foreground">Senha</label>
-                 <Link href="/esqueci-senha" className="text-xs text-brand-gold hover:underline">Esqueci minha senha</Link>
-               </div>
+               <label htmlFor="password" className="text-sm font-medium text-foreground">Senha</label>
               <input 
                 id="password"
                 name="password"
@@ -105,6 +102,7 @@ export default function Login() {
                 className="w-full bg-brand-bg border border-brand-border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-gold focus:border-brand-gold text-foreground placeholder:text-muted-foreground transition-all"
                 placeholder="••••••••"
               />
+               <Link href="/esqueci-senha" className="inline-block text-xs text-brand-gold hover:underline">Esqueci minha senha</Link>
             </div>
 
             <CaptchaChallenge onTokenChange={setCaptchaToken} />
