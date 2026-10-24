@@ -16,9 +16,11 @@ import {
 } from 'react';
 import { toast } from 'sonner';
 import { api, type FinanceHistoryItem } from './api';
+import type { CashClosingFrequency } from './cash-closing';
 import { formatDateKey } from './date';
 import { useAuth } from '@/auth/auth';
 import { DEFAULT_ROLE_PERMISSIONS } from '@/auth/roles';
+import { useQueryClient } from '@tanstack/react-query';
 
 // ─── Entity types ──────────────────────────────────────────────────────────────
 
@@ -75,18 +77,31 @@ export interface AppointmentProduct {
   quantity: number;
 }
 
+export interface ProfessionalCommissionAssignment {
+  professionalId: string;
+  amount: number;
+}
+
 export interface Appointment {
   id: string;
   date: string; // YYYY-MM-DD
   time: string; // HH:MM
   client: string;
   clientPhone?: string;
+  clientId?: string;
   professionalId: string;
+  serviceId?: string;
+  planSubscriberId?: string;
+  planUsageValue?: number;
+  professionalCommissions?: ProfessionalCommissionAssignment[];
+  sellerProfessionalId?: string;
+  sellerIsCompany?: boolean;
   service: string;
   duration: number; // minutes
   status: ApptStatus;
   checkedInAt?: string;
   completedAt?: string;
+  attendanceRecordedAt?: string;
   notes?: string;
   value: number;
   tip: number;
@@ -131,6 +146,11 @@ export interface Client {
   visits: ClientVisit[];
 }
 
+export interface SavedClient extends Client {
+  wasCreated: boolean;
+  initialVisitId?: string;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -151,6 +171,7 @@ export interface ServiceItem {
   commissionKey: string;
   isActive: boolean;
   sortOrder: number;
+  legacyNames?: string[];
 }
 
 export interface RoleItem {
@@ -193,6 +214,7 @@ export interface MentoriaSession {
 export interface Expense {
   id: string;
   date: string;
+  createdAt?: string;
   description: string;
   amount: number;
   category: ExpenseCategory;
@@ -206,12 +228,29 @@ export interface Income {
   amount: number;
 }
 
+export interface CashClosing {
+  id: string;
+  periodStart: string;
+  periodEnd: string;
+  frequency: CashClosingFrequency;
+  totalIncome: number;
+  totalExpenses: number;
+  netTotal: number;
+  createdAt: string;
+}
+
 export interface SubscriptionPlan {
   id: string;
   name: string;
   price: number;
-  services: string[];
+  services: Array<string | PlanServiceBenefit>;
   duration: 'Mensal' | 'Trimestral' | 'Semestral' | 'Anual';
+}
+
+export interface PlanServiceBenefit {
+  serviceId: string;
+  serviceName: string;
+  usesPerCycle: number;
 }
 
 export interface Subscriber {
@@ -219,10 +258,11 @@ export interface Subscriber {
   name: string;
   phone: string;
   planId: string;
-  professionalId: string;
+  professionalId?: string;
   startDate: string;
   nextPayment: string;
   status: 'ativo' | 'vencido' | 'pendente';
+  usageStartedAt?: string;
 }
 
 export type SubscriptionPaymentStatus = 'pago' | 'pendente' | 'vencido';
@@ -250,6 +290,11 @@ export interface BarbeariaConfig {
   clientSources: string[];
   clientSegments: { key: ClientInterest; label: string }[];
   defaultServiceDuration: number;
+  cashClosing: {
+    frequency: CashClosingFrequency;
+    weekday: number;
+    dayOfMonth: number;
+  };
 }
 
 // ─── Utilities ─────────────────────────────────────────────────────────────────
@@ -287,7 +332,7 @@ export interface AppStoreValue {
 
   // Appointments
   appointments: Appointment[];
-  addAppointment: (a: Omit<Appointment, 'id'>) => Promise<boolean>;
+  addAppointment: (a: Omit<Appointment, 'id'>) => Promise<Appointment | null>;
   updateAppointment: (id: string, a: Partial<Appointment>) => Promise<boolean>;
   removeAppointment: (id: string) => Promise<boolean>;
 
@@ -298,10 +343,14 @@ export interface AppStoreValue {
 
   // Clients
   clients: Client[];
-  addClient: (c: Omit<Client, 'id' | 'createdAt' | 'visits'>) => Promise<boolean>;
+  addClient: (
+    c: Omit<Client, 'id' | 'createdAt' | 'visits'>,
+    initialVisit?: Omit<ClientVisit, 'id'>,
+    options?: { notifyOnError?: boolean },
+  ) => Promise<SavedClient | null>;
   updateClient: (id: string, c: Partial<Omit<Client, 'id' | 'createdAt' | 'visits'>>) => Promise<boolean>;
   removeClient: (id: string) => Promise<boolean>;
-  addVisit: (clientId: string, visit: Omit<ClientVisit, 'id'>) => Promise<boolean>;
+  addVisit: (clientId: string, visit: Omit<ClientVisit, 'id'>) => Promise<ClientVisit | null>;
   removeVisit: (clientId: string, visitId: string) => Promise<boolean>;
 
   // Products
@@ -335,6 +384,9 @@ export interface AppStoreValue {
   removeIncome: (id: string) => Promise<boolean>;
   financeHistory: FinanceHistoryItem[];
   refreshFinanceHistory: () => Promise<void>;
+  cashClosings: CashClosing[];
+  addCashClosing: (closing: Omit<CashClosing, 'id' | 'createdAt'>) => Promise<CashClosing | null>;
+  removeCashClosing: (id: string) => Promise<boolean>;
 
   // Plans
   plans: SubscriptionPlan[];
@@ -347,7 +399,9 @@ export interface AppStoreValue {
   addSubscriber: (s: Omit<Subscriber, 'id'>) => Promise<boolean>;
   updateSubscriber: (id: string, s: Partial<Subscriber>) => Promise<boolean>;
   removeSubscriber: (id: string) => Promise<boolean>;
+  renewSubscriberPlanUsages: (id: string) => Promise<boolean>;
   subscriptionPayments: SubscriptionPayment[];
+  removeSubscriptionPayment: (id: string) => Promise<boolean>;
   setSubscriptionPaymentStatus: (input: {
     subscriberId: string;
     dueDate: string;
@@ -377,9 +431,10 @@ export const DEFAULT_SERVICES: ServiceItem[] = [
 
 export const DEFAULT_ROLES: RoleItem[] = [
   { id: 'role-gestor', key: 'gestor', label: 'Gestor / Proprietário', description: 'Acesso completo ao sistema.', isActive: true, permissions: DEFAULT_ROLE_PERMISSIONS.gestor },
+  { id: 'role-recepcao', key: 'recepcao', label: 'Recepcionista', description: 'Acesso operacional sem Financeiro, Equipe, Configurações ou Disparos de Mensagens; não é um perfil profissional.', isActive: true, permissions: DEFAULT_ROLE_PERMISSIONS.recepcao },
   { id: 'role-barbeiro', key: 'barbeiro', label: 'Barbeiro', description: 'Agenda e controle diário próprios.', isActive: true, permissions: DEFAULT_ROLE_PERMISSIONS.barbeiro },
   { id: 'role-manicure', key: 'manicure', label: 'Manicure', description: 'Agenda e controle diário próprios.', isActive: true, permissions: DEFAULT_ROLE_PERMISSIONS.manicure },
-  { id: 'role-vendedor', key: 'vendedor', label: 'Vendedor de Prótese', description: 'Agenda de prótese, vendas e clientes.', isActive: true, permissions: DEFAULT_ROLE_PERMISSIONS.vendedor },
+  { id: 'role-vendedor', key: 'vendedor', label: 'Vendedor de Prótese', description: 'Agenda, controle diário e clientes.', isActive: true, permissions: DEFAULT_ROLE_PERMISSIONS.vendedor },
 ];
 
 export const DEFAULT_CONFIG: BarbeariaConfig = {
@@ -398,26 +453,55 @@ export const DEFAULT_CONFIG: BarbeariaConfig = {
     { key: 'protese', label: 'Prótese Capilar' },
   ],
   defaultServiceDuration: 30,
+  cashClosing: { frequency: 'weekly', weekday: 6, dayOfMonth: 1 },
 };
 
 export function AppStoreProvider({ children }: { children: ReactNode }) {
   const { user, profile } = useAuth();
+  const queryClient = useQueryClient();
+  const scope = user && profile?.role && profile.organizationId
+    ? JSON.stringify([user.id, profile.organizationId, profile.role, profile.professionalId, profile.permissions])
+    : 'no-access';
+
+  useEffect(() => {
+    queryClient.clear();
+  }, [scope, queryClient]);
+
+  // A scope change discards every entity and mutation closure synchronously.
+  // Late requests can only update the unmounted instance, never the next user.
+  return <ScopedAppStoreProvider key={scope}>{children}</ScopedAppStoreProvider>;
+}
+
+function ScopedAppStoreProvider({ children }: { children: ReactNode }) {
+  const { user, profile, viewAsProfile } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
+  const viewAsProfileRef = useRef(viewAsProfile);
+  viewAsProfileRef.current = viewAsProfile;
 
   const [professionals, setProfessionals] = useState<Professional[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
+  const clientsRef = useRef<Client[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [prothesisSales, setProthesisSales] = useState<ProthesisSale[]>([]);
   const [mentoriaSessions, setMentoriaSessions] = useState<MentoriaSession[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [incomes, setIncomes] = useState<Income[]>([]);
   const [financeHistory, setFinanceHistory] = useState<FinanceHistoryItem[]>([]);
+  const [cashClosings, setCashClosings] = useState<CashClosing[]>([]);
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [subscribers, setSubscribers] = useState<Subscriber[]>([]);
   const [subscriptionPayments, setSubscriptionPayments] = useState<SubscriptionPayment[]>([]);
   const [config, setConfig] = useState<BarbeariaConfig>(DEFAULT_CONFIG);
+
+  // The ref makes a server-returned client available to rollback calls immediately,
+  // before React has rendered the corresponding state update.
+  const commitClients = useCallback((update: (current: Client[]) => Client[]) => {
+    const next = update(clientsRef.current);
+    clientsRef.current = next;
+    setClients(next);
+  }, []);
 
   // Keep a stable ref to products for sellProduct (avoids stale closure)
   const productsRef = useRef(products);
@@ -426,10 +510,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   // ── Load all data after AuthProvider has resolved the active organization ──
   useEffect(() => {
     let cancelled = false;
-    if (!user || !profile?.organizationId) {
+    if (!user || !profile?.role || !profile.organizationId) {
       setProfessionals([]);
       setAppointments([]);
       setBlocks([]);
+      clientsRef.current = [];
       setClients([]);
       setProducts([]);
       setProthesisSales([]);
@@ -437,6 +522,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       setExpenses([]);
       setIncomes([]);
        setFinanceHistory([]);
+      setCashClosings([]);
       setPlans([]);
       setSubscribers([]);
       setSubscriptionPayments([]);
@@ -458,17 +544,18 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       api.expenses.list(),
       api.incomes.list(),
       api.financeHistory.list(),
+      api.cashClosings.list(),
       api.plans.list(),
       api.subscribers.list(),
       api.subscriptionPayments.list(),
       api.config.get(),
     ])
-      .then(([profs, appts, blks, cls, prods, psales, msessions, exps, incs, history, pls, subs, payments, cfg]) => {
+      .then(([profs, appts, blks, cls, prods, psales, msessions, exps, incs, history, closings, pls, subs, payments, cfg]) => {
         if (cancelled) return;
         setProfessionals((profs as unknown[]).map(cast<Professional>));
         setAppointments((appts as unknown[]).map(cast<Appointment>));
         setBlocks((blks as unknown[]).map(cast<Block>));
-        setClients((cls as unknown[]).map(x => {
+        commitClients(() => (cls as unknown[]).map(x => {
           const c = cast<Client>(x);
           // Ensure visits is always an array
           return { ...c, visits: Array.isArray(c.visits) ? c.visits : [] };
@@ -482,6 +569,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         setExpenses((exps as unknown[]).map(cast<Expense>));
         setIncomes((incs as unknown[]).map(cast<Income>));
         setFinanceHistory((history as FinanceHistoryItem[]));
+        setCashClosings((closings as unknown[]).map(cast<CashClosing>));
         setPlans((pls as unknown[]).map(cast<SubscriptionPlan>));
         setSubscribers((subs as unknown[]).map(cast<Subscriber>));
         setSubscriptionPayments((payments as unknown[]).map(cast<SubscriptionPayment>));
@@ -490,13 +578,18 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           ...DEFAULT_CONFIG,
           ...remoteConfig,
           services: remoteConfig.services?.length ? remoteConfig.services : DEFAULT_SERVICES,
-           roles: remoteConfig.roles?.length
-             ? remoteConfig.roles.map(role => ({
+            roles: remoteConfig.roles?.length
+              ? [
+                ...remoteConfig.roles.map(role => ({
                ...role,
                permissions: Array.isArray(role.permissions)
                  ? role.permissions
                  : (DEFAULT_ROLE_PERMISSIONS[role.key] || ['dashboard']),
-             }))
+                })),
+                ...DEFAULT_ROLES.filter(role =>
+                  role.key === 'recepcao' && !remoteConfig.roles?.some(existing => existing.key === role.key),
+                ),
+              ]
              : DEFAULT_ROLES,
           paymentMethods: remoteConfig.paymentMethods?.length ? remoteConfig.paymentMethods : DEFAULT_CONFIG.paymentMethods,
           clientSources: remoteConfig.clientSources?.length ? remoteConfig.clientSources : DEFAULT_CONFIG.clientSources,
@@ -513,14 +606,16 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       });
 
     return () => { cancelled = true; };
-  }, [user, profile?.organizationId]);
+  }, [user?.id, profile?.organizationId, profile?.role, profile?.professionalId, commitClients]);
 
   // ─── Persist first, then publish the confirmed server state ─────────────────
 
   async function mutation<T>(
     apiFn: () => Promise<T>,
     errMsg: string,
+    notifyOnError = true,
   ): Promise<T | undefined> {
+    if (viewAsProfileRef.current) return undefined;
     try {
       const result = await apiFn();
       // Delete endpoints intentionally return no row. Preserve success with a
@@ -528,7 +623,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       return result === undefined ? (true as unknown as T) : result;
     } catch (err) {
       console.error(errMsg, err);
-      toast.error(errMsg);
+      if (notifyOnError) toast.error(errMsg);
       return undefined;
     }
   }
@@ -564,12 +659,19 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const removeProfessional = useCallback(async (id: string) => {
-    const saved = await mutation(
-      () => api.professionals.remove(id),
-      'Erro ao remover profissional',
-    );
-    if (saved === undefined) return false;
+    if (viewAsProfileRef.current) return false;
+    try {
+      await api.professionals.remove(id);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Erro ao remover profissional');
+      return false;
+    }
     setProfessionals(prev => prev.filter(item => item.id !== id));
+    setAppointments(prev => prev.map(item => item.professionalId === id ? { ...item, professionalId: '' } : item));
+    setBlocks(prev => prev.map(item => item.professionalId === id ? { ...item, professionalId: '' } : item));
+    setProthesisSales(prev => prev.map(item => item.sellerId === id ? { ...item, sellerId: '' } : item));
+    setMentoriaSessions(prev => prev.map(item => item.sellerId === id ? { ...item, sellerId: '' } : item));
+    setSubscribers(prev => prev.map(item => item.professionalId === id ? { ...item, professionalId: '' } : item));
     return true;
   }, []);
 
@@ -582,9 +684,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       () => api.appointments.create(newA as unknown as Record<string, unknown>),
       'Erro ao salvar agendamento',
     );
-    if (!saved) return false;
-    setAppointments(prev => [...prev, cast<Appointment>(saved)]);
-    return true;
+    if (!saved) return null;
+    const created = cast<Appointment>(saved);
+    setAppointments(prev => [...prev, created]);
+    return created;
   }, []);
 
   const updateAppointment = useCallback(async (id: string, a: Partial<Appointment>) => {
@@ -598,11 +701,18 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const removeAppointment = useCallback(async (id: string) => {
-    const saved = await mutation(
-      () => api.appointments.remove(id),
-      'Erro ao remover agendamento',
-    );
-    if (saved === undefined) return false;
+    if (viewAsProfileRef.current) return false;
+    try {
+      await api.appointments.remove(id);
+    } catch (err) {
+      console.error('Erro ao remover agendamento', err);
+      toast.error(
+        err instanceof Error && err.message.includes('attendance_delete_window_expired')
+          ? 'O prazo de 24 horas para excluir este atendimento terminou.'
+          : 'Erro ao remover agendamento',
+      );
+      return false;
+    }
     setAppointments(prev => prev.filter(item => item.id !== id));
     return true;
   }, []);
@@ -630,16 +740,38 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // ── Clients ──
-  const addClient = useCallback(async (c: Omit<Client, 'id' | 'createdAt' | 'visits'>) => {
-    const newC: Client = { ...c, id: uid(), createdAt: formatDateKey(), visits: [] };
+  const addClient = useCallback(async (
+    c: Omit<Client, 'id' | 'createdAt' | 'visits'>,
+    initialVisit?: Omit<ClientVisit, 'id'>,
+    options?: { notifyOnError?: boolean },
+  ) => {
+    const savedVisit = initialVisit ? { ...initialVisit, id: uid() } : undefined;
+    const newC = {
+      ...c,
+      id: uid(),
+      createdAt: formatDateKey(),
+      visits: savedVisit ? [savedVisit] : [],
+      initialVisit: savedVisit,
+    };
     const saved = await mutation(
       () => api.clients.create(newC as unknown as Record<string, unknown>),
       'Erro ao salvar cliente',
+      options?.notifyOnError !== false,
     );
-    if (!saved) return false;
-    setClients(prev => [...prev, cast<Client>(saved)]);
-    return true;
-  }, []);
+    if (!saved) return null;
+    const clientRecord = cast<Client>(saved);
+    const created: SavedClient = {
+      ...clientRecord,
+      wasCreated: clientRecord.id === newC.id,
+      initialVisitId: savedVisit?.id,
+    };
+    commitClients(prev => {
+      const existingIndex = prev.findIndex(item => item.id === created.id);
+      if (existingIndex < 0) return [...prev, clientRecord];
+      return prev.map(item => item.id === created.id ? clientRecord : item);
+    });
+    return created;
+  }, [commitClients]);
 
   const updateClient = useCallback(async (id: string, c: Partial<Omit<Client, 'id' | 'createdAt' | 'visits'>>) => {
     const saved = await mutation(
@@ -647,9 +779,9 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       'Erro ao atualizar cliente',
     );
     if (!saved) return false;
-    setClients(prev => prev.map(item => item.id === id ? cast<Client>(saved) : item));
+    commitClients(prev => prev.map(item => item.id === id ? cast<Client>(saved) : item));
     return true;
-  }, []);
+  }, [commitClients]);
 
   const removeClient = useCallback(async (id: string) => {
     const saved = await mutation(
@@ -657,34 +789,34 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       'Erro ao remover cliente',
     );
     if (saved === undefined) return false;
-    setClients(prev => prev.filter(item => item.id !== id));
+    commitClients(prev => prev.filter(item => item.id !== id));
     return true;
-  }, []);
+  }, [commitClients]);
 
   const addVisit = useCallback(async (clientId: string, visit: Omit<ClientVisit, 'id'>) => {
-    const current = clients.find(item => item.id === clientId);
-    if (!current) return false;
+    const current = clientsRef.current.find(item => item.id === clientId);
+    if (!current) return null;
     const newVisit: ClientVisit = { ...visit, id: uid() };
     const saved = await mutation(
       () => api.clients.update(clientId, { visits: [...current.visits, newVisit] }),
       'Erro ao salvar visita',
     );
-    if (!saved) return false;
-    setClients(prev => prev.map(item => item.id === clientId ? cast<Client>(saved) : item));
-    return true;
-  }, [clients]);
+    if (!saved) return null;
+    commitClients(prev => prev.map(item => item.id === clientId ? cast<Client>(saved) : item));
+    return newVisit;
+  }, [commitClients]);
 
   const removeVisit = useCallback(async (clientId: string, visitId: string) => {
-    const current = clients.find(item => item.id === clientId);
+    const current = clientsRef.current.find(item => item.id === clientId);
     if (!current) return false;
     const saved = await mutation(
       () => api.clients.update(clientId, { visits: current.visits.filter(item => item.id !== visitId) }),
       'Erro ao remover visita',
     );
     if (!saved) return false;
-    setClients(prev => prev.map(item => item.id === clientId ? cast<Client>(saved) : item));
+    commitClients(prev => prev.map(item => item.id === clientId ? cast<Client>(saved) : item));
     return true;
-  }, [clients]);
+  }, [commitClients]);
 
   // ── Products ──
   const addProduct = useCallback(async (p: Omit<Product, 'id'>) => {
@@ -876,6 +1008,27 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     return true;
   }, []);
 
+  const addCashClosing = useCallback(async (closing: Omit<CashClosing, 'id' | 'createdAt'>) => {
+    const saved = await mutation(
+      () => api.cashClosings.create(closing as unknown as Record<string, unknown>),
+      'Erro ao fechar caixa',
+    );
+    if (!saved) return null;
+    const confirmed = cast<CashClosing>(saved);
+    setCashClosings(prev => [...prev, confirmed].sort((a, b) => b.periodEnd.localeCompare(a.periodEnd)));
+    return confirmed;
+  }, []);
+
+  const removeCashClosing = useCallback(async (id: string) => {
+    const deleted = await mutation(
+      () => api.history.deleteItem('cash_closing', id),
+      'Erro ao excluir fechamento de caixa',
+    );
+    if (deleted !== true) return false;
+    setCashClosings(prev => prev.filter(item => item.id !== id));
+    return true;
+  }, []);
+
   // ── Plans ──
   const addPlan = useCallback(async (p: Omit<SubscriptionPlan, 'id'>) => {
     const newP: SubscriptionPlan = { ...p, id: uid() };
@@ -940,6 +1093,26 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     return true;
   }, []);
 
+  const renewSubscriberPlanUsages = useCallback(async (id: string) => {
+    const saved = await mutation(
+      () => api.subscribers.renewUsages(id),
+      'Erro ao renovar usos do plano',
+    );
+    if (!saved) return false;
+    setSubscribers(prev => prev.map(item => item.id === id ? cast<Subscriber>(saved) : item));
+    return true;
+  }, []);
+
+  const removeSubscriptionPayment = useCallback(async (id: string) => {
+    const saved = await mutation(
+      () => api.history.deleteItem('subscription_payment', id),
+      'Erro ao remover mensalidade',
+    );
+    if (!saved) return false;
+    setSubscriptionPayments(previous => previous.filter(payment => payment.id !== id));
+    return true;
+  }, []);
+
   const setSubscriptionPaymentStatus = useCallback(async (input: {
     subscriberId: string;
     dueDate: string;
@@ -997,9 +1170,10 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     expenses, addExpense, updateExpense, removeExpense,
     incomes, addIncome, updateIncome, removeIncome,
     financeHistory, refreshFinanceHistory,
+    cashClosings, addCashClosing, removeCashClosing,
     plans, addPlan, updatePlan, removePlan,
-    subscribers, addSubscriber, updateSubscriber, removeSubscriber,
-    subscriptionPayments, setSubscriptionPaymentStatus,
+    subscribers, addSubscriber, updateSubscriber, removeSubscriber, renewSubscriberPlanUsages,
+    subscriptionPayments, removeSubscriptionPayment, setSubscriptionPaymentStatus,
     config, updateConfig,
   };
 
