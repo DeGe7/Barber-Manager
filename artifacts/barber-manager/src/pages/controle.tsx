@@ -11,6 +11,13 @@ import { normalizeClientPhone } from '@/data/client-phone';
 import { isAssignableProfessional } from '@/data/professional-selection';
 import { planServiceBenefits, planValuePerUse, subscriberServiceUsesRemaining } from '@/data/plan-usage';
 import {
+  clampManualCommissionAmount,
+  manualCommissionAmountLimit,
+  manualCommissionAllocationMatches,
+  professionalCommissionPool,
+  PROFESSIONAL_SERVICE_COMMISSION_RATE,
+} from '@/data/appointment-commissions';
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -101,17 +108,52 @@ export default function Controle() {
   const planValueForUse = isPlanAttendance ? planValuePerUse(selectedPlan) : 0;
   const serviceKey = (serviceItem?.commissionKey ?? 'barbearia') as keyof ProfessionalCommissions;
   const isSalesAttributedService = serviceItem?.commissionKey === 'protese' || serviceItem?.commissionKey === 'mentoria';
-  const commRate = selectedProf?.commissions[serviceKey] || 0;
   const sellerCommRate = selectedSeller?.commissions[serviceKey] || 0;
   const serviceValue = isPlanMode ? 0 : parseFloat(value) || 0;
   const commissionBaseValue = isPlanAttendance ? planValueForUse : serviceValue;
+  const manualCommissionTarget = professionalCommissionPool(commissionBaseValue);
+  const commissionBasisDescription = isPlanAttendance
+    ? 'do valor rateado deste uso do plano'
+    : 'do valor bruto do serviço';
+  const manualAssignments = assignedProfessionalIds.map(id => ({
+    professionalId: id,
+    amount: Number(manualCommissionAmounts[id]) || 0,
+  }));
+  const manualCommissionTotal = Math.round((
+    assignedProfessionalIds.reduce((total, id) => total + (Number(manualCommissionAmounts[id]) || 0), 0)
+    + Number.EPSILON
+  ) * 100) / 100;
   const calculatedComm = isManualCommissionMode
-    ? 0
-    : commissionBaseValue * commRate;
-  const manualCommissionTotal = assignedProfessionalIds.reduce(
-    (total, id) => total + (Number(manualCommissionAmounts[id]) || 0),
-    0,
+    ? manualCommissionTotal
+    : manualCommissionTarget;
+  const manualCommissionIsBalanced = manualCommissionAllocationMatches(
+    commissionBaseValue,
+    manualAssignments,
   );
+  const manualCommissionLimitFor = (professionalId: string) => manualCommissionAmountLimit(
+    manualCommissionTarget,
+    assignedProfessionalIds
+      .filter(id => id !== professionalId)
+      .map(id => Number(manualCommissionAmounts[id]) || 0),
+  );
+  const handleManualCommissionChange = (professionalId: string, rawValue: string) => {
+    const parsedAmount = rawValue.trim() === '' ? null : Number(rawValue);
+    const limit = manualCommissionLimitFor(professionalId);
+    const nextValue = parsedAmount !== null && Number.isFinite(parsedAmount)
+      && (parsedAmount < 0 || parsedAmount > limit)
+      ? clampManualCommissionAmount(
+        manualCommissionTarget,
+        assignedProfessionalIds
+          .filter(id => id !== professionalId)
+          .map(id => Number(manualCommissionAmounts[id]) || 0),
+        parsedAmount,
+      ).toFixed(2)
+      : rawValue;
+    setManualCommissionAmounts(current => ({
+      ...current,
+      [professionalId]: nextValue,
+    }));
+  };
   const calculatedSellerComm = commissionBaseValue * sellerCommRate;
   const matchedPlanSubscribers = selectedClient
     ? subscribers.filter(subscriber => {
@@ -226,6 +268,16 @@ export default function Controle() {
 
     if (!selectedClient && clientPhone.trim() && normalizedClientPhone.length < 10 && !isDuplicateClientPhone) {
       toast.error('Informe o telefone com DDD para cadastrar o cliente.');
+      return;
+    }
+
+    if (isManualCommissionMode && !manualCommissionIsBalanced) {
+      const difference = Math.round((manualCommissionTarget - manualCommissionTotal + Number.EPSILON) * 100) / 100;
+      toast.error(
+        difference > 0
+          ? `As comissões devem somar ${brl(manualCommissionTarget)} (50% ${commissionBasisDescription}); ainda faltam ${brl(difference)}.`
+          : `As comissões devem somar ${brl(manualCommissionTarget)} (50% ${commissionBasisDescription}); reduza ${brl(Math.abs(difference))}.`,
+      );
       return;
     }
     
@@ -873,28 +925,35 @@ export default function Controle() {
                     Comissão manual por profissional
                   </h4>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Informe quanto cada profissional receberá. A comissão automática de realização não será aplicada.
+                    O salão fica com 50% {commissionBasisDescription}. Informe quanto cada profissional recebe; a soma precisa fechar os outros 50%.
                   </p>
+                  {isSalesAttributedService && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Se houver vendedor atribuído, a comissão de venda é calculada separadamente.
+                    </p>
+                  )}
                 </div>
                 {assignedProfessionalIds.map(id => {
                   const professional = professionals.find(item => item.id === id);
+                  const maxCommission = manualCommissionLimitFor(id);
                   return (
                     <label key={id} className="grid grid-cols-1 items-center gap-2 sm:grid-cols-[1fr_10rem]">
-                      <span className="text-sm font-medium">{professional?.name ?? 'Profissional'}</span>
+                      <span className="text-sm font-medium">
+                        {professional?.name ?? 'Profissional'}
+                        <span className="ml-2 text-xs text-muted-foreground">Máx. {brl(maxCommission)}</span>
+                      </span>
                       <span className="relative">
                         <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">R$</span>
                         <input
                           type="number"
                           min="0"
+                          max={maxCommission}
                           step="0.01"
                           required
                           aria-label={`Comissão de ${professional?.name ?? 'profissional'}`}
                           data-testid={`input-attendance-manual-commission-${id}`}
                           value={manualCommissionAmounts[id] ?? ''}
-                          onChange={event => setManualCommissionAmounts(current => ({
-                            ...current,
-                            [id]: event.target.value,
-                          }))}
+                          onChange={event => handleManualCommissionChange(id, event.target.value)}
                           className="w-full rounded-lg border border-brand-border bg-brand-bg py-2 pl-10 pr-3 text-sm text-foreground outline-none focus:border-brand-gold focus:ring-1 focus:ring-brand-gold"
                         />
                       </span>
@@ -905,6 +964,27 @@ export default function Controle() {
                   <span>Total informado</span>
                   <span className="text-brand-gold">{brl(manualCommissionTotal)}</span>
                 </div>
+                <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
+                  <div className="flex justify-between rounded-lg bg-brand-bg/70 px-3 py-2">
+                    <span>Parte dos profissionais ({Math.round(PROFESSIONAL_SERVICE_COMMISSION_RATE * 100)}%)</span>
+                    <strong>{brl(manualCommissionTarget)}</strong>
+                  </div>
+                  <div className="flex justify-between rounded-lg bg-brand-bg/70 px-3 py-2">
+                    <span>Parte do salão (50%)</span>
+                    <strong>{brl(manualCommissionTarget)}</strong>
+                  </div>
+                </div>
+                <p
+                  aria-live="polite"
+                  className={`text-xs ${manualCommissionIsBalanced ? 'text-emerald-400' : 'text-muted-foreground'}`}
+                  data-testid="attendance-manual-commission-balance"
+                >
+                  {manualCommissionIsBalanced
+                    ? 'Divisão completa. A soma das comissões corresponde à parte dos profissionais.'
+                    : manualCommissionTotal < manualCommissionTarget
+                      ? `Faltam ${brl(manualCommissionTarget - manualCommissionTotal)} para completar a parte dos profissionais.`
+                      : `Reduza ${brl(manualCommissionTotal - manualCommissionTarget)} para respeitar a parte dos profissionais.`}
+                </p>
               </section>
             )}
 
@@ -947,12 +1027,16 @@ export default function Controle() {
                     <div className="flex justify-between gap-3">
                       <span className="text-brand-gold font-medium">
                         {isManualCommissionMode
-                          ? 'Comissão manual dos profissionais'
-                          : `Comissão por realização (${Math.round(commRate * 100)}%)`}
+                          ? 'Comissão dos profissionais (50%)'
+                          : `Comissão do profissional (${Math.round(PROFESSIONAL_SERVICE_COMMISSION_RATE * 100)}%)`}
                       </span>
                       <span className="font-bold text-brand-gold">
                         {brl(isManualCommissionMode ? manualCommissionTotal : calculatedComm)}
                       </span>
+                    </div>
+                    <div className="flex justify-between gap-3 text-xs text-muted-foreground">
+                      <span>Parte do salão (50%)</span>
+                      <span>{brl(manualCommissionTarget)}</span>
                     </div>
                     {sellerProfessionalId !== 'company' && selectedSeller && (
                       <div className="flex justify-between gap-3">
@@ -967,11 +1051,17 @@ export default function Controle() {
                     )}
                   </div>
                 ) : (
-                  <div className="flex justify-between items-center">
-                  <span className="text-brand-gold font-medium">
-                    Comissão ({Math.round(commRate * 100)}%{isPlanAttendance ? ` sobre ${brl(planValueForUse)} rateados` : ''}):
-                  </span>
-                    <span className="font-bold text-brand-gold">{brl(calculatedComm)}</span>
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-brand-gold font-medium">
+                        Comissão do profissional (50%{isPlanAttendance ? ` sobre ${brl(planValueForUse)} rateados` : ''}):
+                      </span>
+                      <span className="font-bold text-brand-gold">{brl(calculatedComm)}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-xs text-muted-foreground">
+                      <span>Parte do salão (50%)</span>
+                      <span>{brl(manualCommissionTarget)}</span>
+                    </div>
                   </div>
                 )}
               </div>
