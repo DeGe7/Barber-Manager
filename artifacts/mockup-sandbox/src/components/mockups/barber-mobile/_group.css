@@ -1,0 +1,28 @@
+@theme inline {
+  --color-brand-gold: hsl(var(--brand-gold));
+  --color-brand-bg: hsl(var(--brand-bg));
+  --color-brand-surface: hsl(var(--brand-surface));
+  --color-brand-border: hsl(var(--brand-border));
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-success: hsl(var(--success));
+  --color-warning: hsl(var(--warning));
+}
+
+.bm-current {
+  color-scheme: dark;
+  --brand-gold: 44 53% 54%;
+  --brand-bg: 0 0% 4%;
+  --brand-surface: 0 0% 7%;
+  --brand-border: 0 0% 12%;
+  --background: 0 0% 4%;
+  --foreground: 0 0% 96%;
+  --muted-foreground: 0 0% 55%;
+  --destructive: 0 75% 55%;
+  --success: 150 60% 45%;
+  --warning: 45 90% 52%;
+  --app-font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --radius: 0.5rem;
+}
