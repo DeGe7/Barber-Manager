@@ -1,7 +1,23 @@
 # ============================================================================
-# SECURITY: Require new npm releases to age before installation.
-# Keep the 24-hour minimumReleaseAge below enabled to reduce supply-chain risk.
+# SECURITY: Minimum release age for npm packages (supply-chain attack defense)
 # ============================================================================
+# This setting requires any npm package version to be published for at least
+# one day (1440 minutes) before pnpm will install it. Malicious releases are
+# often discovered within hours, so this delay reduces supply-chain risk.
+#
+# DO NOT DISABLE THIS SETTING. Removing it or setting it to 0 removes an
+# important defense against npm ecosystem compromises.
+#
+# If an urgent trusted package must bypass the delay, add it temporarily to
+# minimumReleaseAgeExclude and remove the exception after the delay has passed.
+# ============================================================================
+minimumReleaseAge: 1440
+
+minimumReleaseAgeExclude:
+  # Packages published by Replit are excluded from the delay.
+  - '@replit/*'
+  - stripe-replit-sync
+
 packages:
   - artifacts/*
   - '!artifacts/barber-mobile'
@@ -25,7 +41,9 @@ catalog:
   clsx: ^2.1.1
   framer-motion: ^12.43.0
   lucide-react: ^0.545.0
+  # Must be this exact version because Expo requires it.
   react: 19.1.0
+  # Must be this exact version because Expo requires it.
   react-dom: 19.1.0
   tailwind-merge: ^3.7.0
   tailwindcss: ^4.3.3
@@ -34,12 +52,6 @@ catalog:
   wouter: ^3.3.5
   zod: ^4.6.7
 
-minimumReleaseAge: 1440
-
-minimumReleaseAgeExclude:
-  - '@replit/*'
-  - stripe-replit-sync
-
 onlyBuiltDependencies:
   - '@swc/core'
   - esbuild
@@ -47,6 +59,7 @@ onlyBuiltDependencies:
   - unrs-resolver
 
 overrides:
+  # Replit uses linux-x64 only; exclude platform-specific optional binaries.
   '@expo/ngrok-bin>@expo/ngrok-bin-darwin-arm64': '-'
   '@expo/ngrok-bin>@expo/ngrok-bin-darwin-x64': '-'
   '@expo/ngrok-bin>@expo/ngrok-bin-freebsd-ia32': '-'
