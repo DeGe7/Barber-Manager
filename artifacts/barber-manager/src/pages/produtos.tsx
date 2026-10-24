@@ -60,17 +60,17 @@ export default function Produtos() {
   };
 
   return (
-    <div className="p-5 md:p-8 space-y-6 max-w-7xl mx-auto">
+    <div className="min-w-0 p-3 sm:p-5 md:p-8 space-y-6 max-w-7xl mx-auto">
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <h2 className="text-2xl font-bold text-foreground">Produtos & Estoque</h2>
-        {!isAdding && <button onClick={() => setIsAdding(true)} className="bg-brand-gold text-brand-bg px-4 py-2 rounded-lg text-sm font-bold hover:bg-brand-gold/90 flex items-center gap-2 transition-all"><Plus className="w-4 h-4"/> Adicionar Produto</button>}
+        {!isAdding && <button onClick={() => setIsAdding(true)} className="min-h-11 w-full md:w-auto justify-center bg-brand-gold text-brand-bg px-4 py-2 rounded-lg text-sm font-bold hover:bg-brand-gold/90 flex items-center gap-2 transition-all"><Plus className="w-4 h-4"/> Adicionar Produto</button>}
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-brand-surface border border-brand-border p-4 rounded-xl"><p className="text-xs text-muted-foreground uppercase">Total Produtos</p><p className="text-2xl font-bold mt-1">{totalItems}</p></div>
-        <div className="bg-brand-surface border border-brand-border p-4 rounded-xl"><p className="text-xs text-muted-foreground uppercase">Valor em Estoque</p><p className="text-2xl font-bold mt-1 text-brand-gold">{brl(totalValue)}</p></div>
-        <div className="bg-brand-surface border border-success/30 p-4 rounded-xl"><p className="text-xs text-success uppercase">Estoque OK</p><p className="text-2xl font-bold mt-1 text-success">{okItems}</p></div>
-        <div className="bg-brand-surface border border-destructive/30 p-4 rounded-xl"><p className="text-xs text-destructive uppercase">Em Alerta</p><p className="text-2xl font-bold mt-1 text-destructive">{alertItems}</p></div>
+        <div className="min-w-0 bg-brand-surface border border-brand-border p-3 sm:p-4 rounded-xl"><p className="text-xs text-muted-foreground uppercase">Total Produtos</p><p className="text-2xl font-bold mt-1">{totalItems}</p></div>
+        <div className="min-w-0 bg-brand-surface border border-brand-border p-3 sm:p-4 rounded-xl"><p className="text-xs text-muted-foreground uppercase">Valor em Estoque</p><p className="break-words text-xl sm:text-2xl font-bold mt-1 text-brand-gold">{brl(totalValue)}</p></div>
+        <div className="min-w-0 bg-brand-surface border border-success/30 p-3 sm:p-4 rounded-xl"><p className="text-xs text-success uppercase">Estoque OK</p><p className="text-2xl font-bold mt-1 text-success">{okItems}</p></div>
+        <div className="min-w-0 bg-brand-surface border border-destructive/30 p-3 sm:p-4 rounded-xl"><p className="text-xs text-destructive uppercase">Em Alerta</p><p className="text-2xl font-bold mt-1 text-destructive">{alertItems}</p></div>
       </div>
 
       <div className={`md:hidden flex items-center gap-3 rounded-2xl border p-4 ${alertItems > 0 ? 'border-destructive/25 bg-destructive/10' : 'border-success/25 bg-success/10'}`}>
@@ -87,22 +87,22 @@ export default function Produtos() {
 
       {isAdding && (
         <div className="bg-brand-bg border border-brand-gold p-4 rounded-xl shadow-[0_0_15px_rgba(201,168,76,0.1)]">
-          <form onSubmit={handleAdd} className="grid grid-cols-1 md:grid-cols-7 gap-4 items-end">
+          <form onSubmit={handleAdd} className="grid grid-cols-1 md:grid-cols-7 gap-4 items-end [&_input]:min-h-11">
             <div className="md:col-span-2"><label className="text-[10px] uppercase text-muted-foreground">Nome</label><input required type="text" value={newP.name} onChange={e=>setNewP({...newP,name:e.target.value})} className="w-full bg-brand-surface border border-brand-border rounded px-3 py-2 text-sm outline-none" autoFocus/></div>
             <div><label className="text-[10px] uppercase text-muted-foreground">Categoria</label><input type="text" value={newP.category} onChange={e=>setNewP({...newP,category:e.target.value})} className="w-full bg-brand-surface border border-brand-border rounded px-3 py-2 text-sm outline-none" /></div>
             <div><label className="text-[10px] uppercase text-muted-foreground">Preço Venda (R$)</label><input required type="number" step="0.01" value={newP.price} onChange={e=>setNewP({...newP,price:e.target.value})} className="w-full bg-brand-surface border border-brand-border rounded px-3 py-2 text-sm outline-none" /></div>
             <div><label className="text-[10px] uppercase text-muted-foreground">Custo (R$)</label><input required type="number" step="0.01" value={newP.cost} onChange={e=>setNewP({...newP,cost:e.target.value})} className="w-full bg-brand-surface border border-brand-border rounded px-3 py-2 text-sm outline-none" /></div>
             <div><label className="text-[10px] uppercase text-muted-foreground">Estoque Inicial</label><input type="number" value={newP.stock} onChange={e=>setNewP({...newP,stock:e.target.value})} className="w-full bg-brand-surface border border-brand-border rounded px-3 py-2 text-sm outline-none" /></div>
             <div><label className="text-[10px] uppercase text-muted-foreground">Estoque Min.</label><input type="number" value={newP.minStock} onChange={e=>setNewP({...newP,minStock:e.target.value})} className="w-full bg-brand-surface border border-brand-border rounded px-3 py-2 text-sm outline-none" /></div>
-            <div className="md:col-span-7 flex justify-end gap-2 mt-2">
-              <button type="button" onClick={()=>setIsAdding(false)} className="px-4 py-2 text-sm hover:bg-brand-surface rounded">Cancelar</button>
-              <button type="submit" className="bg-brand-gold text-brand-bg px-6 py-2 rounded text-sm font-bold">Salvar Produto</button>
+            <div className="md:col-span-7 flex flex-col-reverse sm:flex-row justify-end gap-2 mt-2">
+              <button type="button" onClick={()=>setIsAdding(false)} className="min-h-11 px-4 py-2 text-sm hover:bg-brand-surface rounded">Cancelar</button>
+              <button type="submit" className="min-h-11 bg-brand-gold text-brand-bg px-6 py-2 rounded text-sm font-bold">Salvar Produto</button>
             </div>
           </form>
         </div>
       )}
 
-      <div className="bg-brand-surface border border-brand-border rounded-2xl p-6">
+      <div className="min-w-0 bg-brand-surface border border-brand-border rounded-2xl p-3 sm:p-6">
         {isLoading ? <div className="space-y-3">{Array.from({length: 5}).map((_,i)=><Skeleton key={i} className="h-12 w-full"/>)}</div> : products.length === 0 ? (
           <div className="text-center py-16 text-muted-foreground"><Package className="w-12 h-12 mx-auto mb-4 opacity-30"/><p>Nenhum produto</p></div>
         ) : (
@@ -164,18 +164,32 @@ export default function Produtos() {
                  const margem = p.price > 0 ? ((p.price - p.cost) / p.price) * 100 : null;
                 const stockColor = st === 'critical' ? 'bg-destructive' : st === 'low' ? 'bg-warning' : 'bg-success';
                 const stockRatio = Math.min(p.stock / (Math.max(p.stock, p.minStock) * 1.5 || 5), 1) * 100;
-                return (
-                  <div key={p.id} className={`p-4 bg-brand-bg border border-brand-border rounded-xl border-l-[3px] ${st === 'critical' ? 'border-l-destructive' : st === 'low' ? 'border-l-warning' : 'border-l-success'}`}>
-                    <div className="flex justify-between items-start mb-3">
-                      <div>
-                        <p className="font-bold text-sm">{p.name}</p>
-                        <p className="text-xs text-muted-foreground">{p.category}</p>
+                return editingId === p.id ? (
+                  <div key={p.id} className="min-w-0 p-3 sm:p-4 bg-brand-bg border border-brand-gold rounded-xl">
+                    <form onSubmit={event => { event.preventDefault(); void saveEdit(); }} className="grid grid-cols-1 sm:grid-cols-2 gap-3 [&_input]:min-h-11">
+                      <div className="sm:col-span-2"><label className="text-xs uppercase text-muted-foreground">Produto</label><input value={editForm.name ?? ''} onChange={event => setEditForm({ ...editForm, name: event.target.value })} className="w-full bg-brand-surface border border-brand-border rounded px-3 py-2 text-sm outline-none" /></div>
+                      <div className="sm:col-span-2"><label className="text-xs uppercase text-muted-foreground">Categoria</label><input value={editForm.category ?? ''} onChange={event => setEditForm({ ...editForm, category: event.target.value })} className="w-full bg-brand-surface border border-brand-border rounded px-3 py-2 text-sm outline-none" /></div>
+                      <div><label className="text-xs uppercase text-muted-foreground">Preço de venda</label><input type="number" value={editForm.price ?? ''} onChange={event => setEditForm({ ...editForm, price: event.target.value })} className="w-full bg-brand-surface border border-brand-border rounded px-3 py-2 text-sm outline-none" /></div>
+                      <div><label className="text-xs uppercase text-muted-foreground">Custo</label><input type="number" value={editForm.cost ?? ''} onChange={event => setEditForm({ ...editForm, cost: event.target.value })} className="w-full bg-brand-surface border border-brand-border rounded px-3 py-2 text-sm outline-none" /></div>
+                      <div><label className="text-xs uppercase text-muted-foreground">Estoque mínimo</label><input type="number" value={editForm.minStock ?? ''} onChange={event => setEditForm({ ...editForm, minStock: event.target.value })} className="w-full bg-brand-surface border border-brand-border rounded px-3 py-2 text-sm outline-none" /></div>
+                      <div className="flex items-end gap-2">
+                        <button type="button" onClick={cancelEdit} className="min-h-11 flex-1 rounded border border-brand-border px-3 py-2 text-sm">Cancelar</button>
+                        <button type="submit" className="min-h-11 flex-1 rounded bg-brand-gold px-3 py-2 text-sm font-bold text-brand-bg">Salvar</button>
                       </div>
-                      <span className={`px-2 py-0.5 rounded text-xs font-bold ${stClass}`}>{p.stock} un.</span>
+                    </form>
+                  </div>
+                ) : (
+                  <div data-testid={`mobile-product-card-${p.id}`} key={p.id} className={`min-w-0 p-3 sm:p-4 bg-brand-bg border border-brand-border rounded-xl border-l-[3px] ${st === 'critical' ? 'border-l-destructive' : st === 'low' ? 'border-l-warning' : 'border-l-success'}`}>
+                    <div className="flex min-w-0 justify-between items-start gap-2 mb-3">
+                      <div className="min-w-0">
+                        <p data-testid={`mobile-product-name-${p.id}`} className="min-w-0 break-words [overflow-wrap:anywhere] font-bold text-sm">{p.name}</p>
+                        <p data-testid={`mobile-product-category-${p.id}`} className="min-w-0 break-words [overflow-wrap:anywhere] text-xs text-muted-foreground">{p.category}</p>
+                      </div>
+                      <span className={`shrink-0 px-2 py-0.5 rounded text-xs font-bold ${stClass}`}>{p.stock} un.</span>
                     </div>
-                    <div className="grid grid-cols-3 gap-2 text-xs mb-3">
-                      <div><p className="text-muted-foreground">Venda</p><p className="font-bold">{brl(p.price)}</p></div>
-                      <div><p className="text-muted-foreground">Custo</p><p className="font-bold">{brl(p.cost)}</p></div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs mb-3">
+                      <div className="min-w-0"><p className="text-muted-foreground">Venda</p><p className="font-bold break-words">{brl(p.price)}</p></div>
+                      <div className="min-w-0"><p className="text-muted-foreground">Custo</p><p className="font-bold break-words">{brl(p.cost)}</p></div>
                        <div><p className="text-muted-foreground">Margem</p><p className="font-bold">{margem === null ? '—' : `${Math.round(margem)}%`}</p></div>
                     </div>
                     <div className="mb-3">
@@ -189,12 +203,12 @@ export default function Produtos() {
                     </div>
                     <div className="flex justify-between items-center pt-2 border-t border-brand-border/50">
                       <div className="flex items-center gap-1">
-                        <input type="number" min="1" placeholder="+Qtd" value={restockQs[p.id]||''} onChange={e=>setRestockQs({...restockQs, [p.id]: e.target.value})} className="bg-brand-surface border border-brand-border rounded px-2 py-1 w-16 text-xs outline-none" />
-                        <button aria-label="Repor estoque" onClick={()=>handleRestock(p.id)} className="p-1.5 bg-brand-gold/10 text-brand-gold rounded hover:bg-brand-gold hover:text-brand-bg transition-all"><ArrowUp className="w-3.5 h-3.5"/></button>
+                        <input type="number" min="1" placeholder="+Qtd" aria-label={`Quantidade para repor ${p.name}`} value={restockQs[p.id]||''} onChange={e=>setRestockQs({...restockQs, [p.id]: e.target.value})} className="min-h-11 w-20 bg-brand-surface border border-brand-border rounded px-2 py-1 text-xs outline-none" />
+                        <button aria-label={`Repor estoque de ${p.name}`} onClick={()=>handleRestock(p.id)} className="flex min-h-11 min-w-11 items-center justify-center bg-brand-gold/10 text-brand-gold rounded hover:bg-brand-gold hover:text-brand-bg transition-all"><ArrowUp className="w-4 h-4"/></button>
                       </div>
                       <div className="flex gap-1">
-                        <button aria-label={`Editar ${p.name}`} onClick={()=>startEdit(p)} className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-brand-surface rounded transition-all hover:scale-105"><Edit2 className="w-4 h-4"/></button>
-                        <AlertDialog><AlertDialogTrigger asChild><button aria-label={`Excluir ${p.name}`} className="p-1.5 text-destructive hover:bg-destructive/10 rounded transition-all hover:scale-105"><Trash2 className="w-4 h-4"/></button></AlertDialogTrigger><AlertDialogContent className="bg-brand-surface border-brand-border text-foreground"><AlertDialogHeader><AlertDialogTitle>Excluir produto?</AlertDialogTitle><AlertDialogDescription>Deseja excluir?</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel className="bg-brand-bg border-brand-border text-foreground">Cancelar</AlertDialogCancel><AlertDialogAction className="bg-destructive text-white" onClick={async()=>{if(await removeProduct(p.id)) toast.success('Excluído');}}>Excluir</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+                        <button aria-label={`Editar ${p.name}`} onClick={()=>startEdit(p)} className="flex min-h-11 min-w-11 items-center justify-center text-muted-foreground hover:text-foreground hover:bg-brand-surface rounded transition-all hover:scale-105"><Edit2 className="w-4 h-4"/></button>
+                        <AlertDialog><AlertDialogTrigger asChild><button aria-label={`Excluir ${p.name}`} className="flex min-h-11 min-w-11 items-center justify-center text-destructive hover:bg-destructive/10 rounded transition-all hover:scale-105"><Trash2 className="w-4 h-4"/></button></AlertDialogTrigger><AlertDialogContent className="bg-brand-surface border-brand-border text-foreground"><AlertDialogHeader><AlertDialogTitle>Excluir produto?</AlertDialogTitle><AlertDialogDescription>Deseja excluir?</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel className="bg-brand-bg border-brand-border text-foreground">Cancelar</AlertDialogCancel><AlertDialogAction className="bg-destructive text-white" onClick={async()=>{if(await removeProduct(p.id)) toast.success('Excluído');}}>Excluir</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
                       </div>
                     </div>
                   </div>

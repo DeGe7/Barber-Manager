@@ -28,6 +28,9 @@ export const accounts = {
   get operational() {
     return generated()?.accounts.operational || credentials('E2E_OPERATIONAL');
   },
+  get reception() {
+    return generated()?.accounts.reception || credentials('E2E_RECEPTION');
+  },
   get customRole() {
     return generated()?.accounts.customRole || credentials('E2E_CUSTOM_ROLE');
   },
@@ -42,6 +45,12 @@ export const accounts = {
   },
   get revoked() {
     return generated()?.accounts.revoked || credentials('E2E_REVOKED');
+  },
+};
+
+export const receptionAttendance = {
+  get current() {
+    return generated()?.receptionAttendance;
   },
 };
 
@@ -100,7 +109,7 @@ export async function loginAs(page: Page, account: Credentials, options: { invit
 
 export async function openModule(page: Page, path: string, heading: string) {
   await page.goto(path);
-  await expect(page.locator('main h2').filter({ hasText: heading }).first()).toBeVisible();
+  await expect(page.getByRole('heading').filter({ hasText: heading }).first()).toBeVisible();
   await expect(page.locator('main .animate-pulse')).toHaveCount(0, { timeout: 20_000 });
 }
 
@@ -113,6 +122,15 @@ export function waitForMutation(page: Page, table: string, method: string) {
   return page.waitForResponse(
     response =>
       response.url().includes(`/rest/v1/${table}`) &&
+      response.request().method() === method &&
+      response.ok(),
+  );
+}
+
+export function waitForRpcMutation(page: Page, functionName: string, method = 'POST') {
+  return page.waitForResponse(
+    response =>
+      response.url().includes(`/rest/v1/rpc/${functionName}`) &&
       response.request().method() === method &&
       response.ok(),
   );

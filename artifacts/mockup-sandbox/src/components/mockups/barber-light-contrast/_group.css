@@ -1,0 +1,67 @@
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-brand-bg: hsl(var(--brand-bg));
+  --color-brand-surface: hsl(var(--brand-surface));
+  --color-brand-border: hsl(var(--brand-border));
+  --color-brand-gold: hsl(var(--brand-gold));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-warning: hsl(var(--warning));
+  --color-success: hsl(var(--success));
+}
+
+.theme-current,
+.theme-improved {
+  --background: 40 20% 97%;
+  --foreground: 30 12% 12%;
+  --card: 0 0% 100%;
+  --card-foreground: 30 12% 12%;
+  --brand-bg: 40 20% 97%;
+  --brand-surface: 0 0% 100%;
+  --brand-border: 40 10% 86%;
+  --border: 40 10% 86%;
+  --input: 0 0% 100%;
+  --brand-gold: 42 63% 42%;
+  --primary: 42 63% 42%;
+  --primary-foreground: 0 0% 100%;
+  --muted-foreground: 30 8% 43%;
+  --warning: 40 85% 40%;
+  --success: 150 55% 34%;
+}
+
+.theme-improved {
+  --brand-border: 40 12% 72%;
+  --border: 40 12% 72%;
+  --input: 40 12% 60%;
+  --brand-gold: 42 63% 33%;
+  --primary: 42 63% 33%;
+  --muted-foreground: 30 8% 36%;
+  --warning: 40 85% 32%;
+  --success: 150 55% 31%;
+}
+
+.theme-current .bg-brand-gold,
+.theme-improved .bg-brand-gold {
+  background-color: hsl(var(--brand-gold)) !important;
+}
+
+.theme-current .text-brand-gold,
+.theme-improved .text-brand-gold {
+  color: hsl(var(--brand-gold)) !important;
+}
+
+.theme-current .text-brand-bg,
+.theme-improved .text-brand-bg {
+  color: hsl(var(--brand-bg)) !important;
+}
+
+.theme-current .text-warning,
+.theme-improved .text-warning {
+  color: hsl(var(--warning)) !important;
+}

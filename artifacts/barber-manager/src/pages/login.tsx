@@ -9,17 +9,23 @@ import { toast } from 'sonner';
 export default function Login() {
   const [, setLocation] = useLocation();
   const { signIn, acceptInvitation } = useAuth();
-  const [email, setEmail] = useState('');
+  const params = new URLSearchParams(window.location.search);
+  const inviteToken = params.get('convite') || '';
+  const isLegacyPhoneInvitation = params.get('canal') === 'telefone';
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const { isCoolingDown, remainingSeconds, startCooldown } = useAuthRateLimit();
-  const inviteToken = new URLSearchParams(window.location.search).get('convite') || '';
+  const forgotParams = new URLSearchParams();
+  if (inviteToken) forgotParams.set('convite', inviteToken);
+  const forgotHref = forgotParams.toString() ? `/esqueci-senha?${forgotParams.toString()}` : '/esqueci-senha';
+  const forgotLabel = inviteToken ? 'Criar ou recuperar minha senha' : 'Esqueci minha senha';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !password) {
+    if (!identifier.trim() || !password) {
       toast.error('Preencha e-mail e senha.');
       return;
     }
@@ -34,7 +40,7 @@ export default function Login() {
     setLoading(true);
     setErrorMessage('');
     try {
-      await signIn(email, password, captchaToken);
+      await signIn(identifier, password, captchaToken);
       if (inviteToken) await acceptInvitation(inviteToken);
       toast.success('Bem-vindo de volta!');
       setLocation('/dashboard');
@@ -47,6 +53,23 @@ export default function Login() {
       setLoading(false);
     }
   };
+
+  if (isLegacyPhoneInvitation) {
+    return (
+      <main className="flex min-h-[100dvh] items-center justify-center bg-brand-bg p-4">
+        <section className="w-full max-w-md space-y-4 rounded-2xl border border-brand-border bg-brand-surface p-8 text-center shadow-2xl">
+          <Scissors className="mx-auto h-10 w-10 text-brand-gold" />
+          <h1 className="text-2xl font-bold text-foreground">Convite por telefone desativado</h1>
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            Peça ao Gestor/Proprietário para gerar um novo convite usando seu e-mail.
+          </p>
+          <Link href="/login" className="inline-flex w-full justify-center rounded-lg bg-brand-gold px-5 py-3 text-sm font-bold text-brand-bg">
+            Voltar ao login
+          </Link>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <div className="min-h-[100dvh] flex items-center justify-center bg-brand-bg p-4 relative overflow-hidden">
@@ -66,7 +89,7 @@ export default function Login() {
           <form onSubmit={handleSubmit} className="space-y-4">
             {inviteToken && (
               <div className="rounded-lg border border-brand-gold/30 bg-brand-gold/10 p-3 text-sm text-brand-gold">
-                Convite encontrado. Use o e-mail que recebeu o convite para entrar na equipe.
+                Convite por e-mail encontrado. Use o e-mail que recebeu o convite.
               </div>
             )}
             {errorMessage && (
@@ -75,13 +98,13 @@ export default function Login() {
               </p>
             )}
             <div className="space-y-2">
-              <label htmlFor="email" className="text-sm font-medium text-foreground">E-mail</label>
+              <label htmlFor="login-identifier" className="text-sm font-medium text-foreground">E-mail</label>
               <input 
-                id="email"
+                id="login-identifier"
                 name="email"
-                type="email" 
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                type="email"
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
                 autoComplete="email"
                 required
                 className="w-full bg-brand-bg border border-brand-border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-gold focus:border-brand-gold text-foreground placeholder:text-muted-foreground transition-all"
@@ -102,7 +125,7 @@ export default function Login() {
                 className="w-full bg-brand-bg border border-brand-border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-gold focus:border-brand-gold text-foreground placeholder:text-muted-foreground transition-all"
                 placeholder="••••••••"
               />
-               <Link href="/esqueci-senha" className="inline-block text-xs text-brand-gold hover:underline">Esqueci minha senha</Link>
+               <Link href={forgotHref} className="inline-block text-xs text-brand-gold hover:underline">{forgotLabel}</Link>
             </div>
 
             <CaptchaChallenge onTokenChange={setCaptchaToken} />
@@ -115,7 +138,23 @@ export default function Login() {
             </button>
           </form>
           <p className="text-center text-sm text-muted-foreground mt-6">
-            Ainda não tem uma conta? <Link href={inviteToken ? `/cadastro?convite=${encodeURIComponent(inviteToken)}` : '/cadastro'} className="text-brand-gold hover:underline">Cadastre-se</Link>
+            {inviteToken ? (
+              <>
+                Ainda não tem uma conta?{' '}
+                  <Link href={`/convite/${encodeURIComponent(inviteToken)}`} className="text-brand-gold hover:underline">
+                    Criar meu acesso
+                </Link>
+                {' '}para aceitar o convite.
+              </>
+            ) : (
+              <>
+                É um novo profissional?{' '}
+                <Link href="/solicitar-acesso" className="text-brand-gold hover:underline">
+                  Solicite autorização
+                </Link>
+                {' '}e aguarde o convite para criar sua conta.
+              </>
+            )}
           </p>
         </div>
       </div>

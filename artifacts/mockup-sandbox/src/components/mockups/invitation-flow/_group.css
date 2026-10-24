@@ -1,0 +1,101 @@
+@theme inline {
+  --color-brand-bg: hsl(var(--brand-bg));
+  --color-brand-surface: hsl(var(--brand-surface));
+  --color-brand-border: hsl(var(--brand-border));
+  --color-brand-gold: hsl(var(--brand-gold));
+  --color-foreground: hsl(var(--foreground));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-success: hsl(var(--success));
+  --color-destructive: hsl(var(--destructive));
+}
+
+:root,
+.dark {
+  --brand-gold: 44 53% 54%;
+  --brand-bg: 0 0% 4%;
+  --brand-surface: 0 0% 7%;
+  --brand-border: 0 0% 12%;
+  --foreground: 0 0% 96%;
+  --muted-foreground: 0 0% 55%;
+  --success: 150 60% 45%;
+  --destructive: 0 75% 55%;
+  --app-font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-sans: var(--app-font-sans);
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  background: hsl(var(--brand-bg));
+  color: hsl(var(--foreground));
+  font-family: var(--app-font-sans);
+}
+
+.bg-brand-bg {
+  background-color: #0a0a0a !important;
+}
+
+.bg-brand-surface {
+  background-color: #111111 !important;
+}
+
+.bg-brand-gold\/10 {
+  background-color: rgb(201 168 76 / 10%) !important;
+}
+
+.bg-brand-bg\/30 {
+  background-color: rgb(10 10 10 / 30%) !important;
+}
+
+.bg-brand-bg\/60 {
+  background-color: rgb(10 10 10 / 60%) !important;
+}
+
+.border-brand-border {
+  border-color: #1f1f1f !important;
+}
+
+.border-brand-gold\/20 {
+  border-color: rgb(201 168 76 / 20%) !important;
+}
+
+.text-brand-gold {
+  color: #c9a84c !important;
+}
+
+.text-brand-bg {
+  color: #0a0a0a !important;
+}
+
+.text-foreground {
+  color: #f5f5f5 !important;
+}
+
+.text-muted-foreground {
+  color: #8c8c8c !important;
+}
+
+.text-success {
+  color: #2eb875 !important;
+}
+
+.text-destructive {
+  color: #e53e3e !important;
+}
+
+.bg-brand-gold {
+  background-color: #c9a84c !important;
+}
+
+.hover\:bg-brand-gold\/90:hover {
+  background-color: #b99538 !important;
+}
+
+.focus\:border-brand-gold:focus {
+  border-color: #c9a84c !important;
+}
+
+.focus\:ring-brand-gold:focus {
+  --tw-ring-color: #c9a84c !important;
+}

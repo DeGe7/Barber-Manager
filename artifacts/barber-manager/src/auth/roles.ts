@@ -12,7 +12,6 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { key: 'controle', label: 'Controle Diário', description: 'Registrar atendimentos e recebimentos.' },
   { key: 'clientes', label: 'Clientes', description: 'Consultar e gerenciar clientes.' },
   { key: 'profissionais', label: 'Equipe', description: 'Gerenciar profissionais e convites.' },
-  { key: 'vendas', label: 'Vendas & Mentoria', description: 'Gerenciar vendas de prótese e mentorias.' },
   { key: 'produtos', label: 'Produtos & Estoque', description: 'Gerenciar produtos e estoque.' },
   { key: 'planos', label: 'Planos & Mensalidades', description: 'Gerenciar planos e assinantes.' },
   { key: 'financeiro', label: 'Financeiro', description: 'Consultar receitas, despesas e relatórios.' },
@@ -22,12 +21,15 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
 
 export const ALL_PERMISSION_KEYS = PERMISSION_CATALOG.map(permission => permission.key);
 
+const PERSONAL_FINANCE_ROLES = new Set(['barbeiro', 'manicure', 'vendedor']);
+
 export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
   gestor: [...ALL_PERMISSION_KEYS],
   'dev-admin': [...ALL_PERMISSION_KEYS],
+  recepcao: ['dashboard', 'agenda', 'controle', 'clientes', 'produtos', 'planos'],
   barbeiro: ['dashboard', 'agenda', 'controle'],
   manicure: ['dashboard', 'agenda', 'controle'],
-  vendedor: ['dashboard', 'agenda', 'clientes', 'vendas'],
+  vendedor: ['dashboard', 'agenda', 'clientes', 'controle'],
 };
 
 const ROUTE_PERMISSIONS: Record<string, string> = {
@@ -37,7 +39,6 @@ const ROUTE_PERMISSIONS: Record<string, string> = {
   '/controle': 'controle',
   '/clientes': 'clientes',
   '/profissionais': 'profissionais',
-  '/vendas': 'vendas',
   '/produtos': 'produtos',
   '/planos': 'planos',
   '/financeiro': 'financeiro',
@@ -60,13 +61,28 @@ export const ROLE_ROUTES: Record<string, string[]> = Object.fromEntries(
 export function getPermissionsForRole(role: Role | null, permissions?: string[]): string[] {
   if (!role) return [];
   if (role === 'gestor' || role === 'dev-admin') return ALL_PERMISSION_KEYS;
-  if (permissions) return [...new Set(permissions)];
-  return DEFAULT_ROLE_PERMISSIONS[role] || ['dashboard'];
+  const rolePermissions = permissions ?? DEFAULT_ROLE_PERMISSIONS[role] ?? ['dashboard'];
+  if (role === 'recepcao') {
+    return [...new Set(rolePermissions.filter(permission =>
+      !['financeiro', 'profissionais', 'configuracoes', 'comunicacao'].includes(permission),
+    ))];
+  }
+  if (role !== 'vendedor') return [...new Set(rolePermissions)];
+  return [...new Set([...rolePermissions.filter(permission => permission !== 'vendas'), 'controle'])];
 }
 
 export function canAccess(role: Role | null, path: string, permissions?: string[]): boolean {
   if (!role) return false;
   if (path === '/perfil') return true;
+  if (
+    role === 'recepcao' &&
+    ['/financeiro', '/profissionais', '/configuracoes', '/comunicacao'].some(route =>
+      path === route || path.startsWith(`${route}/`),
+    )
+  ) return false;
+  if ((path === '/financeiro' || path.startsWith('/financeiro/')) && PERSONAL_FINANCE_ROLES.has(role)) {
+    return true;
+  }
   const requiredPermission = Object.entries(ROUTE_PERMISSIONS)
     .find(([route]) => path === route || (route !== '/' && path.startsWith(route)))?.[1];
   return Boolean(requiredPermission && getPermissionsForRole(role, permissions).includes(requiredPermission));
@@ -84,7 +100,6 @@ export const ALL_NAV_ITEMS: NavItem[] = [
   { path: '/agenda', label: 'Agenda', icon: 'CalendarCheck' },
   { path: '/clientes', label: 'Clientes', icon: 'UserPlus' },
   { path: '/profissionais', label: 'Profissionais', icon: 'Users' },
-  { path: '/vendas', label: 'Vendas & Mentoria', icon: 'ShoppingCart' },
   { path: '/produtos', label: 'Produtos & Estoque', icon: 'Package' },
   { path: '/planos', label: 'Planos & Mensalidades', icon: 'CreditCard' },
   { path: '/financeiro', label: 'Financeiro', icon: 'DollarSign' },

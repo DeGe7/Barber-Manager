@@ -1,23 +1,43 @@
-import { motion } from 'framer-motion';
+type SplashScreenProps = {
+  message?: string;
+  overlay?: boolean;
+};
 
-export function SplashScreen() {
+export function SplashScreen({
+  message = 'Preparando seu espaço...',
+  overlay = false,
+}: SplashScreenProps) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-brand-bg">
-      <div className="relative flex flex-col items-center">
-        <motion.h1 
-          className="text-3xl md:text-4xl font-bold tracking-widest text-brand-gold uppercase"
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, ease: "easeOut" }}
+    <div
+      className={`bm-loading-screen fixed inset-0 z-[100] grid place-items-center overflow-hidden px-4 py-8 ${
+        overlay ? 'bg-brand-bg/55 backdrop-blur-md' : 'bg-brand-bg'
+      }`}
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+      aria-label={message}
+      data-testid="loading-screen"
+    >
+      <div className="bm-loading-glow bm-loading-glow-gold" aria-hidden="true" />
+      <div className="bm-loading-glow bm-loading-glow-green" aria-hidden="true" />
+
+      <div className="relative z-10 w-full max-w-sm rounded-3xl border border-brand-border bg-brand-surface/90 px-6 py-7 text-center shadow-2xl shadow-black/40 backdrop-blur-xl sm:px-9 sm:py-8">
+        <div
+          className="bm-brand-mark mx-auto grid h-40 w-40 place-items-center rounded-[2rem] border border-brand-gold/20 bg-brand-gold/[0.06]"
+          aria-hidden="true"
         >
-          Barber Manager
-        </motion.h1>
-        <motion.div 
-          className="h-[2px] bg-brand-gold mt-4"
-          initial={{ width: 0, opacity: 0 }}
-          animate={{ width: '100%', opacity: 1 }}
-          transition={{ delay: 0.3, duration: 0.8, ease: "easeInOut" }}
-        />
+          <span className="bm-brand-orbit" />
+          <span className="bm-brand-monogram">
+            <span className="text-brand-gold">B</span>
+            <span className="text-foreground">M</span>
+          </span>
+        </div>
+
+        <p className="mt-5 text-lg font-bold tracking-wide text-foreground">Barber Manager</p>
+        <p className="mt-2 min-h-5 text-sm text-muted-foreground">{message}</p>
+        <div className="mx-auto mt-5 h-1 w-36 overflow-hidden rounded-full bg-brand-border" aria-hidden="true">
+          <div className="bm-loading-progress h-full w-1/2 rounded-full bg-brand-gold" />
+        </div>
       </div>
     </div>
   );

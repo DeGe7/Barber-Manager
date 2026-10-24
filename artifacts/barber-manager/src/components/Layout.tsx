@@ -1,9 +1,10 @@
-import { ReactNode, useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { useAuth } from '@/auth/auth';
-import { canAccess, getNavItemsForRole } from '@/auth/roles';
+import { canAccess, getNavItemsForRole, getPermissionsForRole } from '@/auth/roles';
 import { useStore } from '@/data/store';
 import { getRoleLabel } from '@/auth/types';
+import type { UserSession } from '@/auth/types';
 import NoAccess from '@/pages/no-access';
 import { useTheme } from '@/components/theme-provider';
 import {
@@ -12,7 +13,6 @@ import {
   CalendarCheck,
   UserPlus,
   Users,
-  ShoppingCart,
   Package,
   CreditCard,
   DollarSign,
@@ -23,8 +23,6 @@ import {
   Scissors,
   Sun,
   Moon,
-  ChevronLeft,
-  ChevronRight,
   MessageSquare
   ,UserCircle
 } from 'lucide-react';
@@ -35,7 +33,6 @@ const ICON_MAP: Record<string, React.ElementType> = {
   CalendarCheck,
   UserPlus,
   Users,
-  ShoppingCart,
   Package,
   CreditCard,
   DollarSign,
@@ -50,10 +47,25 @@ interface LayoutProps {
 
 export function Layout({ children }: LayoutProps) {
   const [location, setLocation] = useLocation();
-  const { profile, signOut } = useAuth();
+  const { profile, viewAsProfile, setViewAsProfile, signOut } = useAuth();
   const store = useStore();
   const { theme, toggleTheme } = useTheme();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMobileMenuOpen(false);
+    };
+
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [mobileMenuOpen]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try {
       return localStorage.getItem('barber-sidebar-collapsed') === 'true';
@@ -61,17 +73,61 @@ export function Layout({ children }: LayoutProps) {
       return false;
     }
   });
-
   if (!profile) return null;
 
-  const role = profile.role;
-  const hasAccess = canAccess(role, location, profile.permissions);
-  const navItems = getNavItemsForRole(role, profile.permissions);
-  const mobileDailyPaths = ['/', '/agenda', '/controle', '/produtos', '/vendas', '/clientes'];
+  const currentViewProfile = viewAsProfile ?? profile;
+  const role = currentViewProfile.role;
+  const hasAccess = canAccess(role, location, currentViewProfile.permissions);
+  const navItems = getNavItemsForRole(role, currentViewProfile.permissions);
+  const previewRoles = store.config.roles.some(item => item.key === 'dev-admin')
+    ? store.config.roles
+    : [...store.config.roles, {
+        id: 'role-dev-admin',
+        key: 'dev-admin',
+        label: 'DEV/ADMIN',
+        description: 'Acesso completo ao sistema.',
+        isActive: true,
+        permissions: getPermissionsForRole('dev-admin'),
+      }];
+  const selectedPreviewRole = previewRoles.find(item => item.key === viewAsProfile?.role);
+  const previewProfessional = viewAsProfile?.professionalId
+    ? store.professionals.find(item => item.id === viewAsProfile.professionalId)
+    : undefined;
+
+  const handleViewAsRole = (roleKey: string) => {
+    if (!roleKey) {
+      setViewAsProfile(null);
+      setLocation('/');
+      return;
+    }
+
+    const selectedRole = previewRoles.find(item => item.key === roleKey);
+    if (!selectedRole || profile.role !== 'dev-admin') return;
+    const representative = store.professionals.find(item => item.role === roleKey && item.isActive)
+      ?? store.professionals.find(item => item.role === roleKey);
+    const previewProfile: UserSession = {
+      ...profile,
+      id: `preview:${roleKey}`,
+      name: representative?.name ?? selectedRole.label,
+      email: '',
+      phone: undefined,
+      avatar: undefined,
+      role: roleKey,
+      professionalId: representative?.id,
+      permissions: getPermissionsForRole(roleKey, selectedRole.permissions),
+    };
+    setViewAsProfile(previewProfile);
+    const previewNavItems = getNavItemsForRole(roleKey, previewProfile.permissions);
+    setLocation(previewNavItems[0]?.path ?? '/');
+  };
+  const mobileDailyPaths = ['/', '/controle', '/agenda', '/clientes'];
   const mobileNavItems = mobileDailyPaths
     .map((path) => navItems.find((item) => item.path === path))
-    .filter((item): item is NonNullable<typeof item> => Boolean(item))
-    .slice(0, 4);
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
+  const mobileNavLabels: Record<string, string> = {
+    '/': 'Início',
+    '/controle': 'Controle',
+  };
   const currentNav = navItems.find((n) => location === n.path || (n.path !== '/' && location.startsWith(n.path)));
   const pageTitle = location === '/perfil' ? 'Meu Perfil' : currentNav?.label || 'Barber Manager';
 
@@ -96,20 +152,16 @@ export function Layout({ children }: LayoutProps) {
   const SidebarContent = ({ collapsed = false }: { collapsed?: boolean }) => (
     <>
       <div className={`relative p-4 flex items-center ${collapsed ? 'justify-center' : 'gap-3'} border-b border-brand-border bg-brand-bg h-[72px] shrink-0`}>
-        <div className="w-9 h-9 rounded-lg bg-brand-gold flex items-center justify-center text-brand-bg shrink-0 shadow-[0_0_10px_rgba(201,168,76,0.3)]">
+        <button
+          type="button"
+          onClick={toggleSidebar}
+          aria-label={collapsed ? 'Expandir barra lateral' : 'Recolher barra lateral'}
+          title={collapsed ? 'Expandir barra lateral' : 'Recolher barra lateral'}
+          className="w-9 h-9 rounded-lg bg-brand-gold flex items-center justify-center text-brand-bg shrink-0 shadow-[0_0_10px_rgba(201,168,76,0.3)] cursor-pointer hover:brightness-110 transition"
+        >
           <Scissors className="w-5 h-5" />
-        </div>
+        </button>
         {!collapsed && <span className="font-bold text-lg text-foreground truncate uppercase tracking-wide">{store.config.name || 'Barber Manager'}</span>}
-        {!collapsed && (
-          <button type="button" onClick={toggleSidebar} aria-label="Recolher barra lateral" className="ml-auto p-2 rounded-lg text-muted-foreground hover:bg-brand-surface hover:text-foreground transition-colors">
-            <ChevronLeft className="w-5 h-5" />
-          </button>
-        )}
-        {collapsed && (
-          <button type="button" onClick={toggleSidebar} aria-label="Expandir barra lateral" className="absolute top-5 right-2 p-1 rounded-md text-muted-foreground hover:bg-brand-surface hover:text-foreground transition-colors">
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        )}
       </div>
 
       <div className={`flex-1 overflow-y-auto py-6 ${collapsed ? 'px-2' : 'px-4'} space-y-1.5 bg-brand-surface`}>
@@ -173,11 +225,11 @@ export function Layout({ children }: LayoutProps) {
             onClick={() => setMobileMenuOpen(false)}
             aria-hidden="true"
           />
-          <aside className="relative flex flex-col w-[280px] max-w-[85vw] h-full shadow-2xl bg-brand-surface" role="dialog" aria-modal="true" aria-label="Menu de navegação">
+          <aside className="relative flex w-[85vw] max-w-[280px] min-w-0 shrink-0 flex-col overflow-x-hidden h-full pt-[env(safe-area-inset-top)] pb-[max(env(safe-area-inset-bottom),0.5rem)] shadow-2xl bg-brand-surface" role="dialog" aria-modal="true" aria-label="Menu de navegação">
             <button 
               onClick={() => setMobileMenuOpen(false)}
               aria-label="Fechar menu"
-              className="absolute top-5 right-4 p-2 bg-brand-bg border border-brand-border rounded-lg text-muted-foreground hover:text-foreground z-10 transition-colors"
+              className="absolute top-[calc(env(safe-area-inset-top)+1.25rem)] right-4 p-2 bg-brand-bg border border-brand-border rounded-lg text-muted-foreground hover:text-foreground z-10 transition-colors"
             >
               <X className="w-5 h-5" />
             </button>
@@ -189,19 +241,43 @@ export function Layout({ children }: LayoutProps) {
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0 h-[100dvh] relative bg-brand-bg">
         {/* Topbar */}
-        <header className="h-[72px] shrink-0 bg-brand-bg/80 backdrop-blur-md border-b border-brand-border flex items-center px-5 md:px-8 justify-between sticky top-0 z-10">
-          <div className="flex items-center gap-4">
+        <header className="h-14 md:h-[72px] shrink-0 bg-brand-bg/80 backdrop-blur-md border-b border-brand-border flex items-center px-4 md:px-8 justify-between sticky top-0 z-10">
+          <div className="flex min-w-0 items-center gap-2 md:gap-4">
             <button 
-              className="md:hidden p-2 -ml-2 rounded-lg bg-brand-surface border border-brand-border text-foreground transition-colors hover:bg-brand-border"
+              className="md:hidden flex h-10 w-10 shrink-0 items-center justify-center -ml-1 rounded-lg bg-brand-surface border border-brand-border text-foreground transition-colors hover:bg-brand-border"
               onClick={() => setMobileMenuOpen(true)}
               aria-label="Abrir menu de navegação"
             >
               <Menu className="w-5 h-5" />
             </button>
-            <h1 className="text-xl font-bold text-foreground">{pageTitle}</h1>
+            <h1 className="truncate text-base font-bold text-foreground md:text-xl">{pageTitle}</h1>
           </div>
           
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 items-center gap-2 md:gap-3">
+            {profile.role === 'dev-admin' && (
+              <div className="flex items-center gap-2">
+                <label className="sr-only" htmlFor="view-as-role">Visualizar como cargo</label>
+                <select
+                  id="view-as-role"
+                  value={viewAsProfile?.role ?? ''}
+                  onChange={event => handleViewAsRole(event.target.value)}
+                  className="max-w-[120px] md:max-w-[190px] rounded-lg border border-brand-border bg-brand-surface px-2 py-2 text-xs md:text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-brand-gold"
+                  title="Visualizar o app como outro cargo"
+                >
+                  <option value="">Visualizar como...</option>
+                  {previewRoles.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}
+                </select>
+                {viewAsProfile && (
+                  <button
+                    type="button"
+                    onClick={() => handleViewAsRole('')}
+                    className="rounded-lg border border-brand-gold/40 bg-brand-gold/10 px-2 py-2 text-xs font-semibold text-brand-gold hover:bg-brand-gold/20"
+                  >
+                    Sair
+                  </button>
+                )}
+              </div>
+            )}
             <div className="hidden md:flex items-center text-sm font-medium text-muted-foreground bg-brand-surface px-4 py-2 rounded-lg border border-brand-border">
               {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
             </div>
@@ -210,12 +286,12 @@ export function Layout({ children }: LayoutProps) {
                onClick={toggleTheme}
                aria-label={theme === 'dark' ? 'Ativar tema claro' : 'Ativar tema escuro'}
                title={theme === 'dark' ? 'Tema claro' : 'Tema escuro'}
-               className="w-10 h-10 flex items-center justify-center rounded-lg border border-brand-border bg-brand-surface text-brand-gold hover:border-brand-gold/60 hover:bg-brand-gold/10 transition-colors"
+                   className="flex h-10 w-10 items-center justify-center rounded-lg border border-brand-border bg-brand-surface text-brand-gold hover:border-brand-gold/60 hover:bg-brand-gold/10 transition-colors"
              >
                {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
              </button>
-            <Link href="/perfil" aria-label="Abrir meu perfil" title="Meu Perfil" className="flex items-center gap-2 rounded-lg border border-brand-border bg-brand-surface p-1.5 md:pr-3 hover:border-brand-gold/60 transition-colors">
-              <div className="w-8 h-8 rounded-full bg-brand-bg border border-brand-border flex items-center justify-center text-brand-gold font-bold text-sm overflow-hidden">
+             <Link href="/perfil" aria-label="Abrir meu perfil" title="Meu Perfil" className="flex min-h-10 min-w-10 items-center justify-center gap-2 rounded-lg border border-brand-border bg-brand-surface p-1.5 md:pr-3 hover:border-brand-gold/60 transition-colors">
+               <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-brand-bg border border-brand-border text-brand-gold font-bold text-sm">
                 {profile.avatar ? <img src={profile.avatar} alt="" className="w-full h-full object-cover" /> : profile.name.charAt(0).toUpperCase()}
               </div>
               <span className="hidden md:block max-w-32 truncate text-sm font-semibold text-foreground">{profile.name}</span>
@@ -224,8 +300,18 @@ export function Layout({ children }: LayoutProps) {
         </header>
 
         {/* Page Content */}
-        <div className="flex-1 overflow-y-auto relative pb-20 md:pb-0">
-          {hasAccess ? children : <NoAccess />}
+        <div className="flex-1 overflow-y-auto overscroll-y-contain relative pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-0">
+          {viewAsProfile && (
+            <div className="mx-4 mt-4 rounded-lg border border-brand-gold/40 bg-brand-gold/10 px-4 py-3 text-sm text-brand-gold md:mx-8">
+              <span className="font-semibold">Visualizando como {selectedPreviewRole?.label ?? getRoleLabel(viewAsProfile.role)}</span>
+              {previewProfessional && <span> · Profissional de exemplo: {previewProfessional.name}</span>}
+              {!previewProfessional && viewAsProfile.role !== 'gestor' && viewAsProfile.role !== 'dev-admin' && <span> · Nenhum profissional vinculado a este cargo</span>}
+              <span> · Modo somente visualização</span>
+            </div>
+          )}
+          <div inert={Boolean(viewAsProfile)}>
+            {hasAccess ? children : <NoAccess />}
+          </div>
         </div>
       </main>
 
@@ -240,19 +326,20 @@ export function Layout({ children }: LayoutProps) {
             <Link
               key={item.path}
               href={item.path}
-              className={`flex min-w-0 flex-col items-center gap-1 rounded-lg px-1 py-2 text-[10px] font-medium transition-colors ${
+              aria-current={isActive ? 'page' : undefined}
+              className={`flex min-h-12 min-w-0 flex-col items-center justify-center gap-1 rounded-lg px-1 py-1.5 text-[10px] font-medium transition-colors ${
                 isActive ? 'text-brand-gold' : 'text-muted-foreground'
               }`}
             >
               <Icon className="h-5 w-5" />
-              <span className="max-w-full truncate">{item.label.replace('Controle Diário', 'Controle').replace('Produtos & Estoque', 'Estoque')}</span>
+               <span className="max-w-full truncate">{mobileNavLabels[item.path] ?? item.label}</span>
             </Link>
           );
         })}
         <button
           type="button"
           onClick={() => setMobileMenuOpen(true)}
-          className="flex min-w-0 flex-col items-center gap-1 rounded-lg px-1 py-2 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+           className="flex min-h-12 min-w-0 flex-col items-center justify-center gap-1 rounded-lg px-1 py-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground"
           aria-label="Abrir mais opções"
         >
           <Menu className="h-5 w-5" />

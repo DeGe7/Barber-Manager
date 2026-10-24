@@ -69,6 +69,19 @@ async function createMockSupabase() {
         return json(response, 200, id);
       }
 
+      if (
+        url.pathname === '/rest/v1/rpc/create_reception_invitation' &&
+        request.method === 'POST'
+      ) {
+        return json(response, 200, {
+          id: 'reception-invitation',
+          token: 'reception-invitation-token',
+          email: body?.p_email,
+          professional_id: null,
+          role: 'recepcao',
+        });
+      }
+
       if (url.pathname.startsWith('/rest/v1/')) {
         const table = url.pathname.slice('/rest/v1/'.length);
 
@@ -245,8 +258,8 @@ async function interruptProvision(paths, mock, checkpoint) {
   );
   const state = await waitForState(paths.stateFile, current =>
     checkpoint === 'users'
-      ? current.userIds?.length === 7 && !current.organizationId
-      : current.userIds?.length === 7 && Boolean(current.organizationId),
+      ? current.userIds?.length === 8 && !current.organizationId
+      : current.userIds?.length === 8 && Boolean(current.organizationId),
   );
   run.child.kill('SIGTERM');
   const result = await run.result;
@@ -348,7 +361,7 @@ test('cleans the onboarding organization without touching shared fixture organiz
     assert.equal(mock.organizations.has(onboardingOrganizationId), false);
     assert.equal(mock.organizations.has(unrelatedOrganizationId), true);
     assert.equal(mock.organizations.has(manifest.organizationId), true);
-    assert.equal(mock.users.size, 7);
+    assert.equal(mock.users.size, 8);
   } finally {
     await mock.close();
     await rm(directory, { recursive: true, force: true });

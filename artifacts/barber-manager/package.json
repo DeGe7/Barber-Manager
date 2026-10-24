@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --config vite.config.ts --host 0.0.0.0",
+    "dev": "export VITE_SUPABASE_URL=\"${E2E_SUPABASE_TEST_URL:?E2E_SUPABASE_TEST_URL is required for preview}\" VITE_SUPABASE_ANON_KEY=\"${E2E_SUPABASE_TEST_ANON_KEY:?E2E_SUPABASE_TEST_ANON_KEY is required for preview}\" && vite --config vite.config.ts --host 0.0.0.0",
     "build": "vite build --config vite.config.ts",
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "typecheck": "tsc -p tsconfig.json --noEmit"

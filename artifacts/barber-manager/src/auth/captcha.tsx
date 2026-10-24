@@ -50,6 +50,7 @@ export default function CaptchaChallenge({
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
 
   useEffect(() => {
+    if (!captchaRequired) return;
     if (!siteKey) {
       setStatus('error');
       onTokenChange(null);
@@ -104,7 +105,7 @@ export default function CaptchaChallenge({
     };
   }, [onTokenChange]);
 
-  if (!siteKey && !captchaRequired) return null;
+  if (!captchaRequired) return null;
 
   return (
     <div className="space-y-2" aria-live="polite">

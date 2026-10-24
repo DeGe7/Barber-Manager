@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { useStore, brl, productStatus } from '@/data/store';
+import { useStore, brl, productStatus, PAY_LABELS, PayMethod } from '@/data/store';
 import { useAuth } from '@/auth/auth';
+import { canAccess } from '@/auth/roles';
 import { 
   DollarSign, 
   CalendarCheck, 
@@ -25,10 +26,27 @@ import {
 import { StatsCard } from '@/components/StatsCard';
 import { formatDateKey, parseDateKey } from '@/data/date';
 
+const PAYMENT_METHODS: PayMethod[] = ['debito', 'credito', 'pix', 'dinheiro'];
+const PAYMENT_CARD_STYLES: Record<PayMethod, string> = {
+  debito: 'border-sky-400 bg-sky-50 dark:border-sky-500/30 dark:bg-sky-500/5',
+  credito: 'border-violet-400 bg-violet-50 dark:border-violet-500/30 dark:bg-violet-500/5',
+  pix: 'border-emerald-400 bg-emerald-50 dark:border-emerald-500/30 dark:bg-emerald-500/5',
+  dinheiro: 'border-amber-400 bg-amber-50 dark:border-amber-500/30 dark:bg-amber-500/5',
+};
+const PAYMENT_VALUE_STYLES: Record<PayMethod, string> = {
+  debito: 'text-sky-700 dark:text-sky-400',
+  credito: 'text-violet-700 dark:text-violet-400',
+  pix: 'text-emerald-700 dark:text-emerald-400',
+  dinheiro: 'text-amber-700 dark:text-amber-400',
+};
+
 export default function Dashboard() {
-  const { appointments, professionals, products, prothesisSales, mentoriaSessions, isLoading } = useStore();
-  const { profile } = useAuth();
-  const ownProfile = Boolean(profile?.professionalId && profile.role !== 'gestor' && profile.role !== 'dev-admin');
+  const { appointments, professionals, products, prothesisSales, mentoriaSessions, expenses, isLoading } = useStore();
+  const { profile, viewAsProfile } = useAuth();
+  const activeProfile = viewAsProfile ?? profile;
+  const isReceptionist = activeProfile?.role === 'recepcao';
+  const ownProfile = Boolean(activeProfile?.professionalId && activeProfile.role !== 'gestor' && activeProfile.role !== 'dev-admin');
+  const canViewFinancialSummary = canAccess(activeProfile?.role ?? null, '/financeiro', activeProfile?.permissions);
   const [ownPeriod, setOwnPeriod] = useState<'semanal' | 'mensal'>('semanal');
   const [revenuePeriod, setRevenuePeriod] = useState<'diaria' | 'semanal' | 'mensal'>('diaria');
 
@@ -39,7 +57,7 @@ export default function Dashboard() {
   const todayAppointments = appointments.filter(a => {
     if (!ownProfile) return a.date === today;
     const date = new Date(`${a.date}T12:00:00`);
-    return a.professionalId === profile?.professionalId && date >= periodStart;
+    return a.professionalId === activeProfile?.professionalId && date >= periodStart;
   });
   const completed = todayAppointments.filter(a => a.status === 'completed').length;
   const checkedIn = todayAppointments.filter(a => a.status === 'checked_in').length;
@@ -67,11 +85,52 @@ export default function Dashboard() {
     revenuePeriod === 'diaria' ? 0 : revenuePeriod === 'semanal' ? 6 : 29
   ));
   const revenuePeriodEnd = parseDateKey(today);
+  const paymentPeriodMatches = (date: string) => {
+    const value = parseDateKey(date);
+    return value >= revenuePeriodStart && value <= revenuePeriodEnd;
+  };
   const revenueAppointments = appointments.filter(a => {
     if (a.status !== 'completed' && a.status !== 'confirmed') return false;
     const date = parseDateKey(a.date);
     return date >= revenuePeriodStart && date <= revenuePeriodEnd &&
-      (!ownProfile || a.professionalId === profile?.professionalId);
+      (!ownProfile || a.professionalId === activeProfile?.professionalId);
+  });
+  const paymentTotals = PAYMENT_METHODS.reduce<Record<PayMethod, number>>((totals, method) => {
+    totals[method] = 0;
+    return totals;
+  }, {} as Record<PayMethod, number>);
+  const expenseTotals = PAYMENT_METHODS.reduce<Record<PayMethod, number>>((totals, method) => {
+    totals[method] = 0;
+    return totals;
+  }, {} as Record<PayMethod, number>);
+  let expensesWithoutPaymentMethod = 0;
+  appointments
+    .filter(appointment =>
+      paymentPeriodMatches(appointment.date) &&
+      (appointment.status === 'confirmed' || appointment.status === 'completed')
+    )
+    .forEach(appointment => {
+      const payments = appointment.paymentSplits?.length
+        ? appointment.paymentSplits
+        : [{ method: appointment.payMethod, amount: appointment.value + (appointment.tip || 0) }];
+      payments.forEach(payment => {
+        if (payment.method in paymentTotals) {
+          paymentTotals[payment.method] += Number(payment.amount) || 0;
+        }
+      });
+    });
+  prothesisSales.filter(sale => paymentPeriodMatches(sale.date)).forEach(sale => {
+    const paidAmount = sale.installments > 0
+      ? (sale.value / sale.installments) * sale.installmentsPaid
+      : 0;
+    if (sale.payMethod1 in paymentTotals) paymentTotals[sale.payMethod1] += paidAmount;
+  });
+  expenses.filter(expense => paymentPeriodMatches(expense.date)).forEach(expense => {
+    if (expense.paymentMethod && expense.paymentMethod in expenseTotals) {
+      expenseTotals[expense.paymentMethod] += expense.amount;
+    } else {
+      expensesWithoutPaymentMethod += expense.amount;
+    }
   });
   const revenueByProfessional: Record<string, number> = {};
   revenueAppointments.forEach(a => {
@@ -106,10 +165,10 @@ export default function Dashboard() {
   const mentoriaToday = mentoriaSessions.filter(m =>
     m.date === today &&
     m.status === 'scheduled' &&
-    (!ownProfile || m.sellerId === profile?.professionalId)
+    (!ownProfile || m.sellerId === activeProfile?.professionalId)
   );
   const visibleProthesisAlerts = ownProfile
-    ? prothesisAlerts.filter(sale => sale.sellerId === profile?.professionalId)
+    ? prothesisAlerts.filter(sale => sale.sellerId === activeProfile?.professionalId)
     : prothesisAlerts;
   const sortedAppointments = [...todayAppointments].sort((a, b) => a.time.localeCompare(b.time));
 
@@ -128,14 +187,14 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="p-5 md:p-8 space-y-8 max-w-7xl mx-auto">
+    <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-5 md:space-y-8 md:p-8">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-foreground">Visão geral</h2>
+          <h2 className="text-xl font-bold text-foreground sm:text-2xl">Visão geral</h2>
           <p className="mt-1 text-sm text-muted-foreground">{ownProfile ? 'Acompanhe apenas os seus resultados.' : 'Acompanhe a operação de hoje.'}</p>
         </div>
         {ownProfile && (
-          <select value={ownPeriod} onChange={e => setOwnPeriod(e.target.value as typeof ownPeriod)} className="bg-brand-surface border border-brand-border rounded-lg px-3 py-2 text-sm" aria-label="Período do dashboard">
+          <select value={ownPeriod} onChange={e => setOwnPeriod(e.target.value as typeof ownPeriod)} className="min-h-11 bg-brand-surface border border-brand-border rounded-lg px-3 py-2 text-sm" aria-label="Período do dashboard">
             <option value="semanal">Últimos 7 dias</option>
             <option value="mensal">Últimos 30 dias</option>
           </select>
@@ -146,17 +205,73 @@ export default function Dashboard() {
       </div>
 
       {isLoading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        <div className="grid grid-cols-2 gap-3 sm:gap-5 lg:grid-cols-4">
           {Array.from({length: 4}).map((_, i) => <Skeleton key={i} className="h-36 rounded-2xl" />)}
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-          <StatsCard label="Faturamento (Hoje)" value={revenue} icon={<DollarSign className="w-5 h-5" />} colorClass="text-brand-gold" format={(v: number) => brl(v)} />
+        <div className="grid grid-cols-2 gap-3 sm:gap-5 lg:grid-cols-4">
+          {isReceptionist
+            ? <StatsCard label="Agendados (Hoje)" value={todayAppointments.length} icon={<CalendarCheck className="w-5 h-5" />} colorClass="text-brand-gold" />
+            : <StatsCard label="Faturamento (Hoje)" value={revenue} icon={<DollarSign className="w-5 h-5" />} colorClass="text-brand-gold" format={(v: number) => brl(v)} />}
           <StatsCard label="Concluídos (Hoje)" value={completed} icon={<CalendarCheck className="w-5 h-5" />} colorClass="text-success" />
           <StatsCard label="Aguardando (Hoje)" value={awaiting} icon={<Clock className="w-5 h-5" />} colorClass="text-warning" />
-          <StatsCard label={ownProfile ? "Meu faturamento (Hoje)" : "Destaque (Hoje)"} value={maxRev > 0 ? maxRev : 0} icon={<Trophy className="w-5 h-5" />} colorClass="text-primary" format={(v: number) => v > 0 ? (ownProfile ? brl(v) : (topProf?.name || '-')) : brl(v)} />
+          {isReceptionist
+            ? <StatsCard label="Em atendimento" value={checkedIn} icon={<LogIn className="w-5 h-5" />} colorClass="text-warning" />
+            : <StatsCard label={ownProfile ? "Meu faturamento (Hoje)" : "Destaque (Hoje)"} value={maxRev > 0 ? maxRev : 0} icon={<Trophy className="w-5 h-5" />} colorClass="text-primary" format={(v: number) => v > 0 ? (ownProfile ? brl(v) : (topProf?.name || '-')) : brl(v)} />}
         </div>
       )}
+
+      {canViewFinancialSummary && (isLoading ? (
+        <Skeleton className="h-56 rounded-2xl" />
+      ) : (
+        <section data-testid="payment-method-summary-card" className="rounded-2xl border border-brand-border bg-brand-surface p-4 sm:p-5 md:p-6">
+          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="text-lg font-bold text-foreground">Entradas e saídas por forma de pagamento</h3>
+              <p className="mt-1 text-xs text-muted-foreground">Movimentações financeiras no período selecionado</p>
+            </div>
+            <div className="flex w-fit items-center rounded-lg border border-brand-border bg-brand-bg p-1" role="group" aria-label="Período das movimentações financeiras">
+              {(Object.keys(revenuePeriodLabels) as Array<keyof typeof revenuePeriodLabels>).map(period => (
+                <button
+                  key={period}
+                  type="button"
+                  aria-pressed={revenuePeriod === period}
+                  onClick={() => setRevenuePeriod(period)}
+                  className={`min-h-10 rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors ${
+                    revenuePeriod === period
+                      ? 'bg-brand-gold text-brand-bg'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {revenuePeriodLabels[period]}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {PAYMENT_METHODS.map(method => (
+              <div key={method} className={`min-w-0 rounded-xl border p-3 md:p-4 ${PAYMENT_CARD_STYLES[method]}`}>
+                <p className="text-xs font-semibold uppercase text-muted-foreground">{PAY_LABELS[method]}</p>
+                <div className="mt-3 space-y-1.5 text-sm">
+                  <p className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground">Entrou</span>
+                    <strong className={`shrink-0 ${PAYMENT_VALUE_STYLES[method]}`}>{brl(paymentTotals[method])}</strong>
+                  </p>
+                  <p className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground">Saiu</span>
+                    <strong className="shrink-0 text-destructive">{brl(expenseTotals[method])}</strong>
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+          {expensesWithoutPaymentMethod > 0 && (
+            <p className="mt-3 text-xs text-warning">
+              {brl(expensesWithoutPaymentMethod)} em despesas antigas sem forma de pagamento.
+            </p>
+          )}
+        </section>
+      ))}
 
       {(lowStock > 0 || critStock > 0) && (
         <Link href="/produtos" className="bg-destructive/10 border border-destructive/20 rounded-2xl p-5 md:p-6 flex items-start gap-4 md:gap-5 transition-colors hover:bg-destructive/15">
@@ -204,7 +319,7 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
-          <div className="bg-brand-surface border border-brand-border rounded-2xl p-6">
+          <div className="bg-brand-surface border border-brand-border rounded-2xl p-4 sm:p-6">
               <div className="mb-4 flex items-center justify-between gap-3">
                 <h3 className="text-lg font-bold text-foreground">Atendimentos de Hoje</h3>
                 <Link href="/agenda" className="text-xs font-semibold text-brand-gold md:hidden">Gerenciar</Link>
@@ -227,7 +342,7 @@ export default function Dashboard() {
                         <th className="pb-3 font-medium">Cliente</th>
                         <th className="pb-3 font-medium">Profissional</th>
                         <th className="pb-3 font-medium">Serviço</th>
-                        <th className="pb-3 font-medium">Valor</th>
+                        {!isReceptionist && <th className="pb-3 font-medium">Valor</th>}
                         <th className="pb-3 font-medium">Status</th>
                       </tr>
                     </thead>
@@ -236,9 +351,9 @@ export default function Dashboard() {
                         <tr key={a.id} className="border-b border-brand-border/50 hover:bg-brand-bg/50 transition-colors">
                           <td className="py-3 font-mono">{a.time}</td>
                           <td className="py-3 font-medium">{a.client}</td>
-                          <td className="py-3 text-muted-foreground">{professionals.find(p => p.id === a.professionalId)?.name}</td>
+                          <td className="py-3 text-muted-foreground">{professionals.find(p => p.id === a.professionalId)?.name || 'Profissional removido'}</td>
                           <td className="py-3">{a.service}</td>
-                          <td className="py-3">{brl(a.value + (a.tip || 0))}</td>
+                          {!isReceptionist && <td className="py-3">{brl(a.value + (a.tip || 0))}</td>}
                           <td className="py-3">
                             <span className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_CLASS[a.status] || STATUS_CLASS.cancelled}`}>
                               {STATUS_LABEL[a.status] || a.status}
@@ -252,11 +367,11 @@ export default function Dashboard() {
                 {/* Mobile cards */}
                 <div className="md:hidden space-y-3">
                   {sortedAppointments.map(a => (
-                    <div key={a.id} className="p-4 bg-brand-bg border border-brand-border rounded-xl">
+                    <div key={a.id} className="rounded-xl border border-brand-border bg-brand-bg p-3 sm:p-4">
                       <div className="flex justify-between items-start mb-2">
                         <div>
                           <p className="font-bold text-sm">{a.client}</p>
-                          <p className="text-xs text-muted-foreground mt-0.5">{professionals.find(p => p.id === a.professionalId)?.name} • {a.service}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">{professionals.find(p => p.id === a.professionalId)?.name || 'Profissional removido'} • {a.service}</p>
                         </div>
                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase shrink-0 ml-2 ${STATUS_CLASS[a.status] || STATUS_CLASS.cancelled}`}>
                           {STATUS_LABEL[a.status] || a.status}
@@ -264,7 +379,7 @@ export default function Dashboard() {
                       </div>
                       <div className="flex justify-between text-xs text-muted-foreground">
                         <span className="font-mono">{a.time}</span>
-                        <span className="font-bold text-foreground">{brl(a.value + (a.tip || 0))}</span>
+                        {!isReceptionist && <span className="font-bold text-foreground">{brl(a.value + (a.tip || 0))}</span>}
                       </div>
                     </div>
                   ))}
@@ -273,26 +388,10 @@ export default function Dashboard() {
             )}
           </div>
 
-          {!ownProfile && <div data-testid="professional-revenue-card" className="bg-brand-surface border border-brand-border rounded-2xl p-6">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          {!ownProfile && !isReceptionist && <div data-testid="professional-revenue-card" className="bg-brand-surface border border-brand-border rounded-2xl p-6">
+            <div className="mb-4">
               <h3 className="text-lg font-bold text-foreground">Faturamento por Profissional</h3>
-              <div className="flex items-center rounded-lg border border-brand-border bg-brand-bg p-1" role="group" aria-label="Período do faturamento por profissional">
-                {(Object.keys(revenuePeriodLabels) as Array<keyof typeof revenuePeriodLabels>).map(period => (
-                  <button
-                    key={period}
-                    type="button"
-                    aria-pressed={revenuePeriod === period}
-                    onClick={() => setRevenuePeriod(period)}
-                    className={`rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors ${
-                      revenuePeriod === period
-                        ? 'bg-brand-gold text-brand-bg'
-                        : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    {revenuePeriodLabels[period]}
-                  </button>
-                ))}
-              </div>
+              <p className="mt-1 text-xs text-muted-foreground">Período: {revenuePeriodLabels[revenuePeriod]}</p>
             </div>
             {chartData.length === 0 ? (
                <div className="text-center py-12 text-muted-foreground">
@@ -376,7 +475,7 @@ export default function Dashboard() {
                         <div className="flex justify-between items-start">
                           <div>
                             <p className="font-medium text-sm text-foreground">{m.client}</p>
-                            <p className="text-xs text-muted-foreground mt-1">Com: {professionals.find(p => p.id === m.sellerId)?.name}</p>
+                            <p className="text-xs text-muted-foreground mt-1">Com: {professionals.find(p => p.id === m.sellerId)?.name || 'Profissional removido'}</p>
                           </div>
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-primary/10 text-primary">Mentoria</span>
                         </div>
@@ -395,7 +494,7 @@ export default function Dashboard() {
                         <div className="flex justify-between items-start">
                           <div>
                             <p className="font-medium text-sm text-destructive-foreground">{p.client}</p>
-                            <p className="text-xs text-destructive-foreground/70 mt-1">Vendedor: {professionals.find(prof => prof.id === p.sellerId)?.name}</p>
+                            <p className="text-xs text-destructive-foreground/70 mt-1">Vendedor: {professionals.find(prof => prof.id === p.sellerId)?.name || 'Profissional removido'}</p>
                           </div>
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-destructive/10 text-destructive">Alerta</span>
                         </div>

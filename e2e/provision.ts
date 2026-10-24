@@ -19,6 +19,7 @@ export interface E2EFixtureManifest {
   accounts: {
     manager: Credentials;
     operational: Credentials;
+    reception: Credentials;
     customRole: Credentials;
     invited: Credentials;
     onboarding: Credentials;
@@ -31,6 +32,11 @@ export interface E2EFixtureManifest {
     revoked: string;
     used: string;
     emailCheck: string;
+  };
+  receptionAttendance: {
+    clientId: string;
+    productId: string;
+    professionalId: string;
   };
   userIds: string[];
 }
@@ -56,27 +62,33 @@ interface AuthUser {
   id: string;
 }
 
-const currentSchemaVersion = '2026-09-07';
+const currentSchemaVersion = '2026-10-23.7';
 const requiredSchemaTables = [
   ['organizations', 'id'],
+  ['deployment_settings', 'setting_key,enabled'],
   ['profiles', 'id'],
   ['professionals', 'id'],
-  ['organization_members', 'organization_id'],
-  ['organization_invitations', 'id'],
+  ['organization_members', 'organization_id,granted_by,granted_by_name,granted_at'],
+  ['organization_join_requests', 'id,user_id,applicant_email,applicant_phone,status,professional_id'],
+  ['organization_invitations', 'id,phone,join_request_id,revoked_by,revoked_by_name,invited_by,invited_by_name,resend_email_id,email_delivery_status,email_delivery_updated_at'],
+  ['organization_join_request_events', 'id,request_id,event_type,actor_name,metadata,created_at'],
   ['communication_sends', 'id'],
   ['schema_metadata', 'key'],
   ['organization_settings', 'organization_id'],
-  ['appointments', 'id'],
+  [
+    'appointments',
+    'id,attendance_recorded_at,seller_professional_id,seller_is_company,service_id,plan_subscriber_id,plan_usage_value,professional_commissions',
+  ],
   ['blocks', 'id'],
-  ['clients', 'id'],
-  ['products', 'id'],
+  ['clients', 'id,name,visits,organization_id'],
+  ['products', 'id,name,stock,min_stock,organization_id'],
   ['expenses', 'id'],
   ['incomes', 'id'],
   ['finance_entry_changes', 'id'],
   ['prothesis_sales', 'id'],
   ['mentoria_sessions', 'id'],
   ['subscription_plans', 'id'],
-  ['subscribers', 'id'],
+  ['subscribers', 'id,usage_started_at'],
   [
     'subscription_payments',
     'id,subscriber_id,due_date,paid_at,amount,payment_method,status,note,organization_id,created_at,updated_at',
@@ -230,13 +242,104 @@ async function assertCurrentSchema(config: ProvisionConfig): Promise<void> {
     throw new Error(
       [
         'E2E Supabase schema check failed before fixture provisioning.',
-        `Expected schema version ${currentSchemaVersion} and all current application tables, including subscription_payments.`,
-        'Apply the complete supabase/schema.sql to the dedicated E2E Supabase project, then run the suite again.',
+        `Expected schema version ${currentSchemaVersion} and all current application table and column shapes.`,
+        'Apply the latest Supabase schema updates to the dedicated E2E project, then run the suite again.',
         `Supabase reported: ${detail}`,
       ].join('\n'),
       { cause: error },
     );
   }
+}
+
+async function setOrganizationCreationEnabled(
+  config: ProvisionConfig,
+  enabled: boolean,
+): Promise<void> {
+  await request(config, '/rest/v1/deployment_settings?setting_key=eq.organization_creation_enabled', {
+    method: 'PATCH',
+    body: { enabled, updated_at: new Date().toISOString() },
+    headers: { Prefer: 'return=minimal' },
+  });
+}
+
+export async function clearE2EProjectData(): Promise<{
+  organizationsDeleted: number;
+  authUsersDeleted: number;
+}> {
+  if (!isProvisioningEnabled()) {
+    throw new Error('Set E2E_PROVISION=true before clearing the dedicated E2E project.');
+  }
+  if (process.env.E2E_CLEAR_TEST_PROJECT !== 'DELETE_ALL_TEST_DATA') {
+    throw new Error('Set E2E_CLEAR_TEST_PROJECT=DELETE_ALL_TEST_DATA to confirm this destructive test-only reset.');
+  }
+
+  const config = getConfig();
+  await assertCurrentSchema(config);
+  await setOrganizationCreationEnabled(config, false);
+
+  const organizations = await postgrest(config, 'organizations', undefined, {
+    method: 'GET',
+    query: '?select=id',
+  });
+  const organizationIds = organizations
+    .map(row => row.id)
+    .filter((id): id is string => typeof id === 'string');
+  for (const id of organizationIds) {
+    await request(config, `/rest/v1/organizations?id=eq.${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: { Prefer: 'return=minimal' },
+    });
+  }
+
+  const userIds: string[] = [];
+  const perPage = 1000;
+  for (let page = 1; ; page += 1) {
+    const response = await request(
+      config,
+      `/auth/v1/admin/users?page=${page}&per_page=${perPage}`,
+    );
+    if (!response || typeof response !== 'object' || !Array.isArray((response as { users?: unknown }).users)) {
+      throw new Error('Supabase returned an unexpected user list while clearing E2E data.');
+    }
+    const users = (response as { users: unknown[] }).users;
+    userIds.push(...users.flatMap(user =>
+      user && typeof user === 'object' && typeof (user as { id?: unknown }).id === 'string'
+        ? [(user as { id: string }).id]
+        : [],
+    ));
+    if (users.length < perPage) break;
+  }
+  for (const id of userIds) {
+    await request(config, `/auth/v1/admin/users/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  const remainingProfiles = await postgrest(config, 'profiles', undefined, {
+    method: 'GET',
+    query: '?select=id',
+  });
+  for (const profile of remainingProfiles) {
+    if (typeof profile.id !== 'string') continue;
+    await request(config, `/rest/v1/profiles?id=eq.${encodeURIComponent(profile.id)}`, {
+      method: 'DELETE',
+      headers: { Prefer: 'return=minimal' },
+    });
+  }
+
+  const remainingOrganizations = await postgrest(config, 'organizations', undefined, {
+    method: 'GET',
+    query: '?select=id&limit=1',
+  });
+  if (remainingOrganizations.length) {
+    throw new Error('The E2E test reset did not remove every organization.');
+  }
+  await setOrganizationCreationEnabled(config, false);
+  removeFixtureFiles();
+  return {
+    organizationsDeleted: organizationIds.length,
+    authUsersDeleted: userIds.length,
+  };
 }
 
 async function createUser(
@@ -313,6 +416,7 @@ async function createInvitation(
     professionalId: string;
     email: string;
     invitedBy: string;
+    role?: string;
     token: string;
     expiresAt: string;
     acceptedAt?: string;
@@ -324,7 +428,7 @@ async function createInvitation(
     organization_id: input.organizationId,
     email: input.email,
     professional_id: input.professionalId,
-    role: 'barbeiro',
+    role: input.role ?? 'barbeiro',
     token_hash: tokenHash(input.token),
     expires_at: input.expiresAt,
     accepted_at: input.acceptedAt,
@@ -381,9 +485,11 @@ export async function provisionFixtures(): Promise<void> {
   let organizationId: string | undefined;
 
   try {
+    await setOrganizationCreationEnabled(config, false);
     const accountSpecs = [
       ['manager', 'Gestor E2E'],
       ['operational', 'Profissional operacional E2E'],
+      ['reception', 'Recepção E2E'],
       ['customRole', 'Profissional papel customizado E2E'],
       ['invited', 'Convidado E2E'],
       ['onboarding', 'Onboarding E2E'],
@@ -413,15 +519,21 @@ export async function provisionFixtures(): Promise<void> {
     >;
 
     const managerToken = await signInUser(config, createdAccounts.manager.credentials);
-    const organizationResponse = await request(config, '/rest/v1/rpc/bootstrap_organization', {
-      method: 'POST',
-      body: {
-        p_name: `Organização E2E ${id}`,
-        p_cnpj: '',
-        p_address: 'Ambiente descartável de testes',
-      },
-      authorizationToken: managerToken,
-    });
+    await setOrganizationCreationEnabled(config, true);
+    let organizationResponse: unknown;
+    try {
+      organizationResponse = await request(config, '/rest/v1/rpc/bootstrap_organization', {
+        method: 'POST',
+        body: {
+          p_name: `Organização E2E ${id}`,
+          p_cnpj: '',
+          p_address: 'Ambiente descartável de testes',
+        },
+        authorizationToken: managerToken,
+      });
+    } finally {
+      await setOrganizationCreationEnabled(config, false);
+    }
     organizationId = String(organizationResponse || '');
     if (!organizationId) throw new Error('Supabase did not return the test organization id.');
     writeCleanupState({ userIds, organizationId });
@@ -489,30 +601,77 @@ export async function provisionFixtures(): Promise<void> {
         color: '#14b8a6',
         organization_id: organizationId,
       },
+      {
+        name: 'Profissional pedido de acesso E2E',
+        role: 'barbeiro',
+        initials: 'PA',
+        color: '#f97316',
+        organization_id: organizationId,
+      },
     ], { authorizationToken: managerToken });
-    if (professionals.length !== 7) throw new Error('Supabase did not create all E2E professionals.');
+    if (professionals.length !== 8) throw new Error('Supabase did not create all E2E professionals.');
     const professionalIds = professionals.map(row => String(row.id));
 
-    await postgrest(config, 'organization_members', [
-      {
-        organization_id: organizationId,
-        user_id: createdAccounts.operational.userId,
-        role: 'barbeiro',
-        professional_id: professionalIds[0],
-      },
-      {
-        organization_id: organizationId,
-        user_id: createdAccounts.customRole.userId,
-        role: 'e2e-custom',
-        professional_id: professionalIds[1],
-      },
-      {
-        organization_id: organizationId,
-        user_id: createdAccounts.invited.userId,
-        role: 'barbeiro',
-        professional_id: professionalIds[2],
-      },
-    ], { authorizationToken: config.serviceRoleKey });
+    // Use the real invitation RPC rather than inserting membership alone:
+    // it also sets the protected default organization used by data requests.
+    for (const [account, role, index] of [
+      ['operational', 'barbeiro', 0],
+      ['customRole', 'e2e-custom', 1],
+      ['invited', 'barbeiro', 2],
+    ] as const) {
+      const memberToken = token();
+      await createInvitation(config, {
+        organizationId,
+        professionalId: professionalIds[index],
+        email: createdAccounts[account].credentials.email,
+        invitedBy: createdAccounts.manager.userId,
+        role,
+        token: memberToken,
+        expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+      });
+      await request(config, '/rest/v1/rpc/accept_organization_invitation', {
+        method: 'POST',
+        body: { p_token: memberToken },
+        authorizationToken: await signInUser(config, createdAccounts[account].credentials),
+      });
+    }
+
+    const receptionInvitation = await request(config, '/rest/v1/rpc/create_reception_invitation', {
+      method: 'POST',
+      body: { p_email: createdAccounts.reception.credentials.email },
+      authorizationToken: managerToken,
+    }) as { token?: string; role?: string; professional_id?: string | null };
+    if (receptionInvitation.role !== 'recepcao' || !receptionInvitation.token || receptionInvitation.professional_id !== null) {
+      throw new Error('Supabase did not create a receptionist email invitation without a professional profile.');
+    }
+    await request(config, '/rest/v1/rpc/accept_organization_invitation', {
+      method: 'POST',
+      body: { p_token: receptionInvitation.token },
+      authorizationToken: await signInUser(config, createdAccounts.reception.credentials),
+    });
+
+    const receptionAttendance = {
+      clientId: `e2e-reception-client-${id}`,
+      productId: `e2e-reception-product-${id}`,
+      professionalId: professionalIds[0],
+    };
+    await postgrest(config, 'clients', {
+      id: receptionAttendance.clientId,
+      name: 'Cliente recepção E2E',
+      whatsapp: '11999990001',
+      visits: [],
+      organization_id: organizationId,
+    });
+    await postgrest(config, 'products', {
+      id: receptionAttendance.productId,
+      name: 'Produto recepção E2E',
+      category: 'Teste',
+      price: 25,
+      cost: 5,
+      stock: 10,
+      min_stock: 1,
+      organization_id: organizationId,
+    });
 
     await postgrest(config, 'organization_settings', {
       payload: {
@@ -661,6 +820,7 @@ export async function provisionFixtures(): Promise<void> {
       accounts: {
         manager: createdAccounts.manager.credentials,
         operational: createdAccounts.operational.credentials,
+        reception: createdAccounts.reception.credentials,
         customRole: createdAccounts.customRole.credentials,
         invited: createdAccounts.invited.credentials,
         onboarding: createdAccounts.onboarding.credentials,
@@ -674,6 +834,7 @@ export async function provisionFixtures(): Promise<void> {
         used: usedToken,
         emailCheck: emailCheckToken,
       },
+      receptionAttendance,
       userIds,
     };
     mkdirSync(dirname(config.fixtureFile), { recursive: true });
@@ -681,6 +842,7 @@ export async function provisionFixtures(): Promise<void> {
     chmodSync(config.fixtureFile, 0o600);
     rmSync(cleanupStateFile, { force: true });
   } catch (error) {
+    await setOrganizationCreationEnabled(config, false).catch(() => undefined);
     await cleanupFixtures(config, { organizationId, userIds });
     throw error;
   }
@@ -713,6 +875,9 @@ export async function cleanupFixtures(
     ),
   );
   const cleanupErrors: string[] = [];
+  await setOrganizationCreationEnabled(config, false).catch(error => {
+    cleanupErrors.push(`could not close organization creation: ${String(error)}`);
+  });
 
   if (userIds.length) {
     const ids = userIds.map(encodeURIComponent).join(',');
@@ -750,6 +915,18 @@ export async function cleanupFixtures(
   }
 
   for (const organizationId of organizationIds) {
+    try {
+      await request(
+        config,
+        `/rest/v1/organization_join_requests?organization_id=eq.${encodeURIComponent(organizationId)}`,
+        {
+          method: 'DELETE',
+          headers: { Prefer: 'return=minimal' },
+        },
+      );
+    } catch (error) {
+      cleanupErrors.push(`could not delete organization join requests ${organizationId}: ${String(error)}`);
+    }
     try {
       await request(
         config,
@@ -894,4 +1071,33 @@ export async function cleanupScenarioFixtures(
 
 export function getFixtureFile() {
   return fixtureFile;
+}
+
+/** History fixtures are always scoped to the disposable provisioned organization. */
+export async function professionalHistoryRequest(
+  table: 'professionals' | 'appointments' | 'blocks' | 'prothesis_sales' |
+    'mentoria_sessions' | 'subscription_plans' | 'subscribers' | 'subscription_payments' |
+    'organization_members',
+  method: 'GET' | 'POST' | 'PATCH',
+  body?: Record<string, unknown>,
+  filter?: { column: 'id' | 'subscriber_id' | 'user_id'; value: string },
+): Promise<Record<string, unknown>[]> {
+  if (!isProvisioningEnabled()) throw new Error('History tests require E2E_PROVISION=true.');
+  const manifest = readFixtureManifest();
+  if (!manifest) throw new Error('Disposable E2E fixture manifest not found.');
+  const config = getConfig(); // Validates the dedicated URL against production before every request.
+  if (method === 'PATCH' && !filter) throw new Error('History fixture updates require a record filter.');
+  const result = await request(
+    config,
+    `/rest/v1/${table}?organization_id=eq.${encodeURIComponent(manifest.organizationId)}&order=${table === 'organization_members' ? 'user_id' : 'id'}${
+      filter ? `&${filter.column}=eq.${encodeURIComponent(filter.value)}` : ''
+    }`,
+    {
+      method,
+      headers: { Prefer: 'return=representation' },
+      ...(body ? { body: { ...body, organization_id: manifest.organizationId } } : {}),
+    },
+  );
+  if (!Array.isArray(result)) throw new Error(`Unexpected history fixture response for ${table}.`);
+  return result;
 }

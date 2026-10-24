@@ -3,6 +3,7 @@ import { useStore, brl, ApptStatus } from '@/data/store';
 import { useAuth } from '@/auth/auth';
 import { toast } from 'sonner';
 import { Skeleton } from '@/components/ui/skeleton';
+import { api } from '@/data/api';
 import { 
   ChevronLeft, ChevronRight, Calendar as CalendarIcon, 
   Trash2, Plus, Clock, MessageSquare, AlertCircle, LogIn, CheckCircle2, UserX
@@ -14,21 +15,31 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { formatDateKey } from '@/data/date';
+import { canDeleteAttendance } from '@/data/attendance-deletion';
+import { isAssignableProfessional } from '@/data/professional-selection';
 
 // Helper for dates
 const dToStr = (d: Date) => formatDateKey(d);
 const parseD = (s: string) => new Date(s + 'T12:00:00');
 
 export default function Agenda() {
-  const { appointments, blocks, professionals, config, addAppointment, updateAppointment, removeAppointment, addBlock, removeBlock, isLoading } = useStore();
-  const { profile: session } = useAuth();
-  const ownProfile = Boolean(session?.professionalId && session.role !== 'gestor' && session.role !== 'dev-admin');
+  const { appointments, blocks, professionals, products, config, addAppointment, updateAppointment, removeAppointment, restock, addBlock, removeBlock, isLoading } = useStore();
+  const { profile, viewAsProfile } = useAuth();
+  const session = viewAsProfile ?? profile;
+  const isReceptionist = session?.role === 'recepcao';
+  const ownProfile = Boolean(
+    session?.professionalId
+    && session.role !== 'gestor'
+    && session.role !== 'dev-admin'
+    && session.role !== 'recepcao',
+  );
   const ownProfessionalId = ownProfile ? session?.professionalId : undefined;
 
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(dToStr(new Date()));
   const [filterProf, setFilterProf] = useState(ownProfessionalId || '');
   const [mobileFilter, setMobileFilter] = useState<'all' | 'active' | 'waiting' | 'done'>('all');
+  const [isSyncingGoogle, setIsSyncingGoogle] = useState(false);
 
   // Month navigation
   const firstDayOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
@@ -45,7 +56,7 @@ export default function Agenda() {
     return dToStr(d);
   });
 
-  const activeProfs = professionals.filter(p => p.isActive);
+  const activeProfs = professionals.filter(p => p.isActive && isAssignableProfessional(p));
 
   // Time slots
   const slots = [];
@@ -104,7 +115,7 @@ export default function Agenda() {
     const conflict = checkConflicts(selectedDate, apptForm.time, resolvedProfId, apptForm.service);
     if (conflict) { toast.error(conflict); return; }
 
-    if (!await addAppointment({
+    const createdAppointment = await addAppointment({
       date: selectedDate,
       time: apptForm.time,
       client: apptForm.client,
@@ -117,7 +128,13 @@ export default function Agenda() {
       tip: 0,
       products: [],
       payMethod: 'pix',
-    })) return;
+    });
+    if (!createdAppointment) return;
+    void api.googleCalendar.syncAppointment(createdAppointment.id).catch((error: unknown) => {
+      toast.warning('Agendamento salvo, mas não sincronizado com o Google Agenda.', {
+        description: error instanceof Error ? error.message : 'Tente sincronizar novamente pela agenda.',
+      });
+    });
     toast.success('Agendamento criado');
     setIsApptOpen(false);
   };
@@ -145,6 +162,11 @@ export default function Agenda() {
       value: editForm.value,
       duration: svcDur(editForm.service),
     })) return;
+    void api.googleCalendar.syncAppointment(editAppt.id).catch((error: unknown) => {
+      toast.warning('Agendamento atualizado, mas não sincronizado com o Google Agenda.', {
+        description: error instanceof Error ? error.message : 'Tente sincronizar novamente pela agenda.',
+      });
+    });
     toast.success('Agendamento atualizado');
     setIsEditOpen(false);
   };
@@ -169,7 +191,7 @@ export default function Agenda() {
 
   const sendWhatsApp = (phone: string | undefined, a: typeof appointments[0]) => {
     if (!phone) { toast.error('Sem número de WhatsApp'); return; }
-    const pName = professionals.find(p => p.id === a.professionalId)?.name || '';
+    const pName = professionals.find(p => p.id === a.professionalId)?.name || 'Profissional removido';
     const msg = `Olá ${a.client}! Passando para confirmar seu horário:\n\nData: ${a.date.split('-').reverse().join('/')}\nHorário: ${a.time}\nServiço: ${a.service}\nProfissional: ${pName}\n\nPor favor, confirme respondendo SIM ou REMARCAR. Obrigado!`;
     window.open(`https://wa.me/55${phone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
   };
@@ -194,6 +216,118 @@ export default function Agenda() {
     }
   };
 
+  const handleDeleteAppointment = async (appointment: typeof appointments[0]) => {
+    if (!canDeleteAttendance(appointment.attendanceRecordedAt, session?.role)) {
+      toast.error('O prazo de 24 horas para excluir este atendimento terminou.');
+      return;
+    }
+    if (!await removeAppointment(appointment.id)) return;
+
+    const failedRestocks = new Set<string>();
+    for (const item of appointment.products ?? []) {
+      if (!item.productId || !Number.isInteger(item.quantity) || item.quantity <= 0) continue;
+      if (!await restock(item.productId, item.quantity)) {
+        failedRestocks.add(products.find(product => product.id === item.productId)?.name ?? 'produto não identificado');
+      }
+    }
+
+    toast.success('Atendimento excluído.');
+    if (failedRestocks.size > 0) {
+      toast.warning(`Não foi possível restaurar o estoque de: ${[...failedRestocks].join(', ')}. Confira os produtos usados neste atendimento.`);
+    }
+
+    try {
+      await api.googleCalendar.deleteAppointment(appointment.id);
+    } catch (error) {
+      toast.warning('Agendamento excluído do Barber Manager, mas pode continuar no Google Agenda.', {
+        description: error instanceof Error ? error.message : 'Não foi possível remover o evento do Google Agenda.',
+      });
+    }
+  };
+
+  const deleteAppointmentAction = (appointment: typeof appointments[0], mobile = false) => {
+    const canDelete = canDeleteAttendance(appointment.attendanceRecordedAt, session?.role);
+    return (
+      <AlertDialog>
+        <AlertDialogTrigger asChild>
+          <button
+            type="button"
+            aria-label={canDelete
+              ? `Excluir agendamento de ${appointment.client}`
+              : `Excluir atendimento de ${appointment.client} (prazo de 24 horas encerrado)`}
+            title={canDelete ? undefined : 'Atendimento só pode ser excluído nas primeiras 24 horas após o lançamento.'}
+            disabled={!canDelete}
+            className={mobile
+              ? 'inline-flex min-h-10 min-w-10 items-center justify-center rounded-lg border border-destructive/30 p-2 text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50'
+              : 'ml-auto flex items-center gap-1 text-xs text-destructive hover:underline disabled:cursor-not-allowed disabled:opacity-50'}
+          >
+            <Trash2 className={mobile ? 'h-4 w-4' : 'h-3 w-3'} />
+            {!mobile && 'Excluir'}
+          </button>
+        </AlertDialogTrigger>
+        <AlertDialogContent className="bg-brand-surface border-brand-border text-foreground">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir agendamento?</AlertDialogTitle>
+            <AlertDialogDescription>
+              O atendimento de {appointment.client} será removido. Produtos consumidos voltarão ao estoque e o evento correspondente será removido do Google Agenda quando possível. Essa ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="bg-brand-bg text-foreground border-brand-border hover:bg-brand-border">Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => void handleDeleteAppointment(appointment)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    );
+  };
+
+  const syncCurrentMonthToGoogle = async () => {
+    const monthStart = dToStr(new Date(currentDate.getFullYear(), currentDate.getMonth(), 1));
+    const monthEnd = dToStr(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0));
+    const ids = appointments
+      .filter(a =>
+        a.date >= monthStart &&
+        a.date <= monthEnd &&
+        a.status !== 'cancelled' &&
+        (!effectiveFilterProf || a.professionalId === effectiveFilterProf)
+      )
+      .map(a => a.id);
+
+    if (ids.length === 0) {
+      toast.info('Não há agendamentos neste mês para sincronizar.');
+      return;
+    }
+
+    setIsSyncingGoogle(true);
+    let syncedCount = 0;
+    const failures: Array<{ appointmentId: string; error: string }> = [];
+    try {
+      for (let index = 0; index < ids.length; index += 100) {
+        const result = await api.googleCalendar.syncAppointments(ids.slice(index, index + 100));
+        syncedCount += result.syncedCount;
+        failures.push(...result.failed);
+      }
+      if (failures.length > 0) {
+        toast.warning(`${syncedCount} agendamentos sincronizados; ${failures.length} não foram sincronizados.`, {
+          description: failures[0]?.error,
+        });
+      } else {
+        toast.success(`${syncedCount} agendamentos sincronizados com o Google Agenda.`);
+      }
+    } catch (error) {
+      toast.error('Não foi possível sincronizar com o Google Agenda.', {
+        description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
+      });
+    } finally {
+      setIsSyncingGoogle(false);
+    }
+  };
+
   const mobileAppointments = [...dayAppointments]
     .filter((a) => {
       if (mobileFilter === 'active') return a.status === 'checked_in';
@@ -213,24 +347,34 @@ export default function Agenda() {
   }[status]);
 
   return (
-    <div className="p-5 md:p-8 space-y-6 max-w-7xl mx-auto flex flex-col min-h-[calc(100dvh-8rem)] md:h-[calc(100vh-6rem)]">
+    <div className="mx-auto flex min-h-[calc(100dvh-7rem)] max-w-7xl flex-col space-y-5 p-4 sm:p-5 md:h-[calc(100vh-6rem)] md:space-y-6 md:p-8">
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <h2 className="text-2xl font-bold text-foreground">Agenda</h2>
+        <h2 className="text-xl font-bold text-foreground md:text-2xl">Agenda</h2>
         <div className="flex flex-wrap items-center gap-3">
-           <select disabled={ownProfile} value={effectiveFilterProf} onChange={e => setFilterProf(e.target.value)} className="bg-brand-bg border border-brand-border rounded-lg px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-brand-gold outline-none disabled:opacity-60">
+           <button
+             type="button"
+             data-testid="button-sync-google-calendar"
+             onClick={() => void syncCurrentMonthToGoogle()}
+             disabled={isSyncingGoogle || isLoading}
+              className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-brand-border bg-brand-surface px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-brand-border disabled:opacity-60"
+           >
+             <CalendarIcon className="w-4 h-4 text-brand-gold" />
+             {isSyncingGoogle ? 'Sincronizando...' : 'Sincronizar mês'}
+           </button>
+            <select disabled={ownProfile} value={effectiveFilterProf} onChange={e => setFilterProf(e.target.value)} className="min-h-11 bg-brand-bg border border-brand-border rounded-lg px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-brand-gold outline-none disabled:opacity-60">
             <option value="">Todos Profissionais</option>
             {activeProfs.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
           
           <Dialog open={isBlockOpen} onOpenChange={setIsBlockOpen}>
             <DialogTrigger asChild>
-              <button className="bg-brand-surface border border-brand-border text-foreground px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-border transition-colors">
+              <button className="min-h-11 bg-brand-surface border border-brand-border text-foreground px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand-border transition-colors">
                 Bloquear Horário
               </button>
             </DialogTrigger>
-            <DialogContent className="bg-brand-surface border-brand-border text-foreground">
+            <DialogContent className="max-h-[90dvh] w-[calc(100vw-1rem)] overflow-y-auto bg-brand-surface border-brand-border text-foreground sm:max-w-lg">
               <DialogHeader><DialogTitle>Bloquear Horário ({selectedDate.split('-').reverse().join('/')})</DialogTitle></DialogHeader>
-              <form onSubmit={handleAddBlock} className="space-y-4 pt-4">
+              <form onSubmit={handleAddBlock} className="space-y-4 pt-4 [&_input:not([type=checkbox])]:min-h-11 [&_select]:min-h-11">
                 <div>
                   <label className="text-xs font-semibold text-muted-foreground uppercase">Profissional</label>
                   <select required disabled={ownProfile} value={ownProfessionalId || blockForm.profId} onChange={e => setBlockForm(f => ({ ...f, profId: e.target.value }))} className="w-full bg-brand-bg border border-brand-border rounded-lg px-3 py-2 mt-1 text-sm outline-none disabled:opacity-60">
@@ -244,33 +388,61 @@ export default function Agenda() {
                     <option>Folga</option><option>Almoço</option><option>Atestado</option><option>Outro</option>
                   </select>
                 </div>
-                <div className="flex items-center gap-2">
-                  <input type="checkbox" id="fd" checked={blockForm.fullDay} onChange={e => setBlockForm(f => ({ ...f, fullDay: e.target.checked }))} className="accent-brand-gold" />
+                <div className="flex min-h-11 items-center gap-3">
+                  <input type="checkbox" id="fd" checked={blockForm.fullDay} onChange={e => setBlockForm(f => ({ ...f, fullDay: e.target.checked }))} className="h-5 w-5 accent-brand-gold" />
                   <label htmlFor="fd" className="text-sm">Dia Inteiro</label>
                 </div>
                 {!blockForm.fullDay && (
                   <div>
-                    <label className="text-xs font-semibold text-muted-foreground uppercase">Horários (selecione múltiplos segurando Ctrl)</label>
-                    <select multiple value={blockForm.slots} onChange={e => setBlockForm(f => ({ ...f, slots: Array.from(e.target.selectedOptions, o => o.value) }))} className="w-full bg-brand-bg border border-brand-border rounded-lg px-3 py-2 mt-1 text-sm outline-none h-32">
-                      {slots.map(s => <option key={s} value={s}>{s}</option>)}
-                    </select>
+                    <label className="text-xs font-semibold text-muted-foreground uppercase">Horários</label>
+                    <div className="mt-2 grid max-h-48 grid-cols-3 gap-2 overflow-y-auto md:hidden">
+                      {slots.map(slot => {
+                        const selected = blockForm.slots.includes(slot);
+                        return (
+                          <button
+                            key={slot}
+                            type="button"
+                            aria-pressed={selected}
+                            onClick={() => setBlockForm(form => ({
+                              ...form,
+                              slots: selected
+                                ? form.slots.filter(item => item !== slot)
+                                : [...form.slots, slot],
+                            }))}
+                            className={`min-h-11 rounded-lg border text-sm font-medium transition-colors ${
+                              selected
+                                ? 'border-brand-gold bg-brand-gold/15 text-brand-gold'
+                                : 'border-brand-border bg-brand-bg text-foreground'
+                            }`}
+                          >
+                            {slot}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="mt-1 hidden md:block">
+                      <select multiple value={blockForm.slots} onChange={e => setBlockForm(f => ({ ...f, slots: Array.from(e.target.selectedOptions, o => o.value) }))} className="w-full bg-brand-bg border border-brand-border rounded-lg px-3 py-2 text-sm outline-none h-32">
+                        {slots.map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                      <p className="mt-1 text-xs text-muted-foreground">Use Ctrl ou Command para selecionar mais de um horário.</p>
+                    </div>
                   </div>
                 )}
-                <button type="submit" className="w-full bg-brand-gold text-brand-bg font-bold py-2 rounded-lg hover:bg-brand-gold/90 transition-all">Salvar Bloqueio</button>
+                <button type="submit" className="min-h-12 w-full bg-brand-gold text-brand-bg font-bold py-2 rounded-lg hover:bg-brand-gold/90 transition-all">Salvar Bloqueio</button>
               </form>
             </DialogContent>
           </Dialog>
 
           <Dialog open={isApptOpen} onOpenChange={setIsApptOpen}>
             <DialogTrigger asChild>
-              <button className="bg-brand-gold text-brand-bg px-4 py-2 rounded-lg text-sm font-bold hover:bg-brand-gold/90 flex items-center gap-2 transition-all">
+            <button className="min-h-11 bg-brand-gold text-brand-bg px-4 py-2 rounded-lg text-sm font-bold hover:bg-brand-gold/90 flex items-center gap-2 transition-all">
                 <Plus className="w-4 h-4" /> Novo Agendamento
               </button>
             </DialogTrigger>
-            <DialogContent className="bg-brand-surface border-brand-border text-foreground">
+            <DialogContent className="max-h-[90dvh] w-[calc(100vw-1rem)] overflow-y-auto bg-brand-surface border-brand-border text-foreground sm:max-w-lg">
               <DialogHeader><DialogTitle>Agendar - {selectedDate.split('-').reverse().join('/')}</DialogTitle></DialogHeader>
-              <form onSubmit={handleAddAppt} className="space-y-4 pt-4">
-                <div className="grid grid-cols-2 gap-4">
+              <form onSubmit={handleAddAppt} className="space-y-4 pt-4 [&_input]:min-h-11 [&_select]:min-h-11">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
                     <label className="text-xs font-semibold text-muted-foreground uppercase">Horário</label>
                     <select value={apptForm.time} onChange={e => setApptForm(f => ({ ...f, time: e.target.value }))} className="w-full bg-brand-bg border border-brand-border rounded-lg px-3 py-2 mt-1 text-sm outline-none">
@@ -293,7 +465,7 @@ export default function Agenda() {
                   <label className="text-xs font-semibold text-muted-foreground uppercase">WhatsApp</label>
                   <input type="text" value={apptForm.phone} onChange={e => setApptForm(f => ({ ...f, phone: e.target.value }))} className="w-full bg-brand-bg border border-brand-border rounded-lg px-3 py-2 mt-1 text-sm outline-none" placeholder="11999999999" />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
                     <label className="text-xs font-semibold text-muted-foreground uppercase">Serviço</label>
                     <select value={apptForm.service} onChange={e => setApptForm(f => ({ ...f, service: e.target.value }))} className="w-full bg-brand-bg border border-brand-border rounded-lg px-3 py-2 mt-1 text-sm outline-none">
@@ -305,7 +477,7 @@ export default function Agenda() {
                     <input type="number" min="0" step="0.01" value={apptForm.value} onChange={e => setApptForm(f => ({ ...f, value: Number(e.target.value) || 0 }))} className="w-full bg-brand-bg border border-brand-border rounded-lg px-3 py-2 mt-1 text-sm text-brand-gold font-bold outline-none" placeholder="Digite o valor" />
                   </div>
                 </div>
-                <button type="submit" className="w-full bg-brand-gold text-brand-bg font-bold py-2 rounded-lg hover:bg-brand-gold/90 transition-all">Confirmar Agendamento</button>
+                <button type="submit" className="min-h-12 w-full bg-brand-gold text-brand-bg font-bold py-2 rounded-lg hover:bg-brand-gold/90 transition-all">Confirmar Agendamento</button>
               </form>
             </DialogContent>
           </Dialog>
@@ -332,7 +504,7 @@ export default function Agenda() {
               className="w-[132px] rounded-lg border border-brand-border bg-brand-bg px-2 py-2 text-xs text-foreground outline-none focus:ring-1 focus:ring-brand-gold"
             />
           </div>
-          <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+          <div className="mt-4 flex flex-wrap gap-2">
             {[
               ['all', 'Todos'],
               ['active', 'Em atendimento'],
@@ -380,37 +552,40 @@ export default function Agenda() {
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <p className="truncate font-bold text-foreground">{a.client}</p>
-                          <p className="mt-0.5 truncate text-xs text-muted-foreground">{a.service} · {professionals.find((p) => p.id === a.professionalId)?.name}</p>
+                          <p className="mt-0.5 truncate text-xs text-muted-foreground">{a.service} · {professionals.find((p) => p.id === a.professionalId)?.name || 'Profissional removido'}</p>
                         </div>
                         <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold ${status.className}`}>{status.label}</span>
                       </div>
                       <div className="mt-3 flex items-center justify-between gap-2 border-t border-brand-border/60 pt-3">
-                        <span className="text-sm font-bold text-brand-gold">{brl(a.value + (a.tip || 0))}</span>
-                        {canCheckIn && (
-                          <div className="flex gap-2">
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <button type="button" aria-label={`Marcar falta de ${a.client}`} className="rounded-lg border border-destructive/30 bg-destructive/10 p-2 text-destructive">
-                                  <UserX className="h-4 w-4" />
-                                </button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent className="border-brand-border bg-brand-surface text-foreground">
-                                <AlertDialogHeader><AlertDialogTitle>Marcar como falta?</AlertDialogTitle><AlertDialogDescription>{a.client} não compareceu ao atendimento das {a.time}.</AlertDialogDescription></AlertDialogHeader>
-                                <AlertDialogFooter><AlertDialogCancel className="border-brand-border bg-brand-bg text-foreground">Cancelar</AlertDialogCancel><AlertDialogAction onClick={() => markNoShow(a)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Marcar falta</AlertDialogAction></AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
-                            <button type="button" onClick={() => checkIn(a)} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-gold px-3 py-2 text-xs font-bold text-brand-bg">
-                              <LogIn className="h-4 w-4" /> Check-in
+                        {!isReceptionist && <span className="text-sm font-bold text-brand-gold">{brl(a.value + (a.tip || 0))}</span>}
+                        <div className="ml-auto flex items-center gap-2">
+                          {canCheckIn && (
+                            <div className="flex gap-2">
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <button type="button" aria-label={`Marcar falta de ${a.client}`} className="rounded-lg border border-destructive/30 bg-destructive/10 p-2 text-destructive">
+                                    <UserX className="h-4 w-4" />
+                                  </button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent className="border-brand-border bg-brand-surface text-foreground">
+                                  <AlertDialogHeader><AlertDialogTitle>Marcar como falta?</AlertDialogTitle><AlertDialogDescription>{a.client} não compareceu ao atendimento das {a.time}.</AlertDialogDescription></AlertDialogHeader>
+                                  <AlertDialogFooter><AlertDialogCancel className="border-brand-border bg-brand-bg text-foreground">Cancelar</AlertDialogCancel><AlertDialogAction onClick={() => markNoShow(a)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Marcar falta</AlertDialogAction></AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                              <button type="button" onClick={() => checkIn(a)} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-gold px-3 py-2 text-xs font-bold text-brand-bg">
+                                <LogIn className="h-4 w-4" /> Check-in
+                              </button>
+                            </div>
+                          )}
+                          {isActive && (
+                            <button type="button" onClick={() => finishAppointment(a)} className="inline-flex items-center gap-1.5 rounded-lg bg-success px-3 py-2 text-xs font-bold text-success-foreground">
+                              <CheckCircle2 className="h-4 w-4" /> Finalizar
                             </button>
-                          </div>
-                        )}
-                        {isActive && (
-                          <button type="button" onClick={() => finishAppointment(a)} className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-success px-3 py-2 text-xs font-bold text-success-foreground">
-                            <CheckCircle2 className="h-4 w-4" /> Finalizar
-                          </button>
-                        )}
-                        {a.status === 'completed' && <span className="ml-auto text-xs font-medium text-success">Concluído às {a.completedAt || '--:--'}</span>}
-                        {a.status === 'checked_in' && <span className="text-xs text-warning">Desde {a.checkedInAt || '--:--'}</span>}
+                          )}
+                          {a.status === 'completed' && <span className="text-xs font-medium text-success">Concluído às {a.completedAt || '--:--'}</span>}
+                          {a.status === 'checked_in' && <span className="text-xs text-warning">Desde {a.checkedInAt || '--:--'}</span>}
+                          {deleteAppointmentAction(a, true)}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -489,7 +664,7 @@ export default function Agenda() {
                   {dayBlocks.filter(b => b.slots.length === 0).map(b => (
                     <div key={b.id} className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg flex justify-between items-center text-sm">
                       <div>
-                        <span className="font-semibold">{professionals.find(p => p.id === b.professionalId)?.name}</span> - {b.reason}
+                        <span className="font-semibold">{professionals.find(p => p.id === b.professionalId)?.name || 'Profissional removido'}</span> - {b.reason}
                       </div>
                       <AlertDialog>
                         <AlertDialogTrigger asChild><button aria-label="Remover bloqueio de dia inteiro" className="text-destructive hover:bg-destructive/20 p-1 rounded transition-all hover:scale-105"><Trash2 className="w-4 h-4"/></button></AlertDialogTrigger>
@@ -518,7 +693,7 @@ export default function Agenda() {
                       
                       {slotBlocks.map(b => (
                         <div key={b.id} className="p-2 bg-destructive/10 border border-destructive/20 rounded-lg text-sm flex justify-between items-center">
-                          <span className="text-destructive/80 text-xs font-medium">Bloqueado: {professionals.find(p => p.id === b.professionalId)?.initials} - {b.reason}</span>
+                          <span className="text-destructive/80 text-xs font-medium">Bloqueado: {professionals.find(p => p.id === b.professionalId)?.initials || 'Profissional removido'} - {b.reason}</span>
                           <AlertDialog>
                             <AlertDialogTrigger asChild><button aria-label="Remover bloqueio de horário" className="text-destructive hover:bg-destructive/20 p-1 rounded transition-all hover:scale-105"><Trash2 className="w-3 h-3"/></button></AlertDialogTrigger>
                             <AlertDialogContent className="bg-brand-surface border-brand-border text-foreground">
@@ -541,7 +716,7 @@ export default function Agenda() {
                           <div className="flex justify-between items-start mb-2">
                             <div>
                               <p className="text-sm font-bold text-foreground">{a.client}</p>
-                              <p className="text-xs text-muted-foreground mt-0.5">{professionals.find(p => p.id === a.professionalId)?.name} • {a.service}</p>
+                              <p className="text-xs text-muted-foreground mt-0.5">{professionals.find(p => p.id === a.professionalId)?.name || 'Profissional removido'} • {a.service}</p>
                             </div>
                             <select 
                               value={a.status} 
@@ -551,7 +726,16 @@ export default function Agenda() {
                                   status: ns,
                                   ...(ns === 'checked_in' && !a.checkedInAt ? { checkedInAt: nowTime() } : {}),
                                   ...(ns === 'completed' && !a.completedAt ? { completedAt: nowTime() } : {}),
-                                 })) toast.success('Status atualizado');
+                                  })) {
+                                    if (ns === 'cancelled' || a.status === 'cancelled') {
+                                      void api.googleCalendar.syncAppointment(a.id).catch((error: unknown) => {
+                                        toast.warning('Status salvo, mas não sincronizado com o Google Agenda.', {
+                                          description: error instanceof Error ? error.message : 'Tente sincronizar novamente pela agenda.',
+                                        });
+                                      });
+                                    }
+                                    toast.success('Status atualizado');
+                                  }
                               }}
                               className="text-xs bg-transparent border border-brand-border rounded px-1 py-0.5 outline-none cursor-pointer"
                             >
@@ -572,13 +756,7 @@ export default function Agenda() {
                             <button aria-label={`Editar agendamento de ${a.client}`} onClick={() => openEdit(a)} className="text-xs text-brand-gold flex items-center gap-1 hover:underline">
                               Editar
                             </button>
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild><button aria-label={`Excluir agendamento de ${a.client}`} className="text-xs text-destructive flex items-center gap-1 ml-auto hover:underline"><Trash2 className="w-3 h-3" /> Excluir</button></AlertDialogTrigger>
-                              <AlertDialogContent className="bg-brand-surface border-brand-border text-foreground">
-                                <AlertDialogHeader><AlertDialogTitle>Excluir agendamento?</AlertDialogTitle><AlertDialogDescription>Essa ação não pode ser desfeita.</AlertDialogDescription></AlertDialogHeader>
-                                <AlertDialogFooter><AlertDialogCancel className="bg-brand-bg text-foreground border-brand-border hover:bg-brand-border">Cancelar</AlertDialogCancel><AlertDialogAction onClick={async () => {if (await removeAppointment(a.id)) toast.success('Excluído');}} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Excluir</AlertDialogAction></AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
+                            {deleteAppointmentAction(a)}
                           </div>
                         </div>
                       ))}

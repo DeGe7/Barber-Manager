@@ -7,6 +7,9 @@ import { toast } from 'sonner';
 export default function RedefinirSenha() {
   const [, setLocation] = useLocation();
   const { session, updatePassword } = useAuth();
+  const inviteToken = new URLSearchParams(window.location.search).get('convite') || '';
+  const loginHref = inviteToken ? `/login?convite=${encodeURIComponent(inviteToken)}` : '/login';
+  const recoveryHref = inviteToken ? `/esqueci-senha?convite=${encodeURIComponent(inviteToken)}` : '/esqueci-senha';
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
   const [loading, setLoading] = useState(false);
@@ -26,6 +29,11 @@ export default function RedefinirSenha() {
     setLoading(true);
     try {
       await updatePassword(password);
+      if (inviteToken) {
+        toast.success('Senha criada. Vamos concluir seu convite.');
+        setLocation(`/convite/${encodeURIComponent(inviteToken)}`);
+        return;
+      }
       setUpdated(true);
       toast.success('Senha atualizada com sucesso!');
     } catch (error) {
@@ -51,11 +59,13 @@ export default function RedefinirSenha() {
           {updated ? (
             <div className="space-y-4">
               <div className="rounded-lg border border-brand-gold/30 bg-brand-gold/10 p-4 text-sm text-foreground">
-                Sua senha foi alterada. Você já pode continuar usando o sistema.
+                {inviteToken
+                  ? 'Sua senha foi criada e o convite foi aceito. Você já pode acessar a equipe.'
+                  : 'Sua senha foi alterada. Você já pode continuar usando o sistema.'}
               </div>
               <button
                 type="button"
-                onClick={() => setLocation('/')}
+                onClick={() => setLocation(inviteToken ? '/dashboard' : '/')}
                 className="w-full bg-brand-gold text-brand-bg font-bold py-3 px-4 rounded-lg hover:bg-brand-gold/90 transition-all"
               >
                 Ir para o sistema
@@ -67,7 +77,7 @@ export default function RedefinirSenha() {
                 Link inválido ou expirado.
               </p>
               <Link
-                href="/esqueci-senha"
+                href={recoveryHref}
                 className="block w-full text-center bg-brand-gold text-brand-bg font-bold py-3 px-4 rounded-lg hover:bg-brand-gold/90 transition-all"
               >
                 Solicitar novo link
@@ -112,7 +122,7 @@ export default function RedefinirSenha() {
           )}
           {!updated && (
             <p className="text-center text-sm text-muted-foreground mt-6">
-              <Link href="/login" className="text-brand-gold hover:underline">Voltar para o login</Link>
+              <Link href={loginHref} className="text-brand-gold hover:underline">Voltar para o login</Link>
             </p>
           )}
         </div>
