@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useStore, Client } from '@/data/store';
 import { api, CommunicationChannel, CommunicationSend } from '@/data/api';
+import { useAuth } from '@/auth/auth';
 import { toast } from 'sonner';
-import { Megaphone, MessageSquare, Copy, Users, CalendarDays, Clock3, Mail, Send, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Megaphone, MessageSquare, Copy, Users, CalendarDays, Clock3, Mail, Send, CheckCircle2, AlertCircle, Trash2 } from 'lucide-react';
 
 type CampaignId = 'anuncios' | 'churn' | 'aniversarios';
 
@@ -74,6 +75,8 @@ function formatHistoryDate(value: string) {
 
 export default function Comunicacao() {
   const { clients, config, isLoading } = useStore();
+  const { profile, viewAsProfile } = useAuth();
+  const isManager = (viewAsProfile ?? profile)?.role === 'gestor' || (viewAsProfile ?? profile)?.role === 'dev-admin';
   const [activeCampaign, setActiveCampaign] = useState<CampaignId>('anuncios');
   const [messages, setMessages] = useState(DEFAULT_MESSAGES);
   const [channel, setChannel] = useState<CommunicationChannel>('whatsapp');
@@ -102,6 +105,18 @@ export default function Comunicacao() {
     () => audience.filter(client => isValidRecipient(client, channel)),
     [audience, channel],
   );
+
+  const deleteSend = async (item: CommunicationSend) => {
+    if (!window.confirm(`Excluir o registro de envio para ${item.recipientName}?`)) return;
+    try {
+      const deleted = await api.history.deleteItem('communication_send', item.id);
+      if (!deleted) throw new Error('Este registro não foi encontrado.');
+      setHistory(current => current.filter(record => record.id !== item.id));
+      toast.success('Registro de envio excluído.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Não foi possível excluir o registro.');
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -334,6 +349,11 @@ export default function Comunicacao() {
                   <p className="truncate text-sm font-semibold">{item.recipientName} <span className="font-normal text-muted-foreground">• {channelLabel(item.channel)}</span></p>
                   <p className="truncate text-xs text-muted-foreground">{item.status === 'initiated' ? 'Canal aberto para confirmação do envio' : item.failureReason || 'Falha ao abrir o canal'} • {formatHistoryDate(item.createdAt)}</p>
                 </div>
+                {isManager && (
+                  <button type="button" onClick={() => void deleteSend(item)} className="rounded-lg p-2 text-destructive hover:bg-destructive/10" aria-label={`Excluir histórico de envio para ${item.recipientName}`}>
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                )}
               </div>
             ))}
           </div>
