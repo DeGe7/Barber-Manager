@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useStore, Professional } from '@/data/store';
 import {
+  PROFESSIONAL_SALES_COMMISSION_FIELDS,
+  PROFESSIONAL_SERVICE_COMMISSION_RATE,
+} from '@/data/appointment-commissions';
+import {
   api,
   CreatedInvitation,
   OrganizationInvitation,
@@ -405,7 +409,7 @@ export default function Profissionais() {
     setEditingId(null);
     setForm({
       name: '', role: 'barbeiro', initials: '', color: PRESET_COLORS[Math.floor(Math.random()*PRESET_COLORS.length)], isActive: true,
-      commissions: { barbearia: 0.5, manutencao: 0.4, manicure: 0, protese: 0, mentoria: 0 }
+        commissions: { barbearia: 0, manutencao: 0, manicure: 0, protese: 0, mentoria: 0 }
     });
     setIsOpen(true);
   };
@@ -698,13 +702,16 @@ export default function Profissionais() {
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-foreground uppercase border-b border-brand-border/50 pb-2 mb-3 block">Comissões (%)</label>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  {Object.entries(form.commissions).map(([key, val]) => (
+                <label className="text-xs font-semibold text-foreground uppercase border-b border-brand-border/50 pb-2 mb-3 block">Comissões por venda (%)</label>
+                <p className="mb-3 text-xs text-muted-foreground">
+                  A execução de serviços é fixa: {Math.round(PROFESSIONAL_SERVICE_COMMISSION_RATE * 100)}% para o profissional e 50% para o salão. Configure abaixo somente comissões de venda.
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  {PROFESSIONAL_SALES_COMMISSION_FIELDS.map(({ key, label }) => (
                     <div key={key}>
-                      <label className="text-xs text-muted-foreground capitalize">{key}</label>
+                      <label className="text-xs text-muted-foreground">{label}</label>
                       <div className="flex items-center gap-2 mt-1">
-                        <input type="number" min="0" max="100" value={Math.round(val * 100)} onChange={e => setForm(f => ({...f, commissions: {...f.commissions, [key]: Number(e.target.value)/100}}))} className="w-full bg-brand-bg border border-brand-border rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-brand-gold" />
+                        <input type="number" min="0" max="100" value={Math.round(form.commissions[key] * 100)} onChange={e => setForm(f => ({...f, commissions: {...f.commissions, [key]: Number(e.target.value)/100}}))} className="w-full bg-brand-bg border border-brand-border rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-brand-gold" />
                         <span className="text-sm font-medium">%</span>
                       </div>
                     </div>
@@ -1363,12 +1370,17 @@ export default function Profissionais() {
               <div className="flex-1 bg-brand-bg rounded-xl p-3 border border-brand-border/50 mb-4">
                 <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Comissões Ativas</p>
                 <div className="flex flex-wrap gap-2">
-                  {Object.entries(p.commissions).filter(([_,v]) => v > 0).map(([k, v]) => (
-                    <span key={k} className="text-[10px] bg-brand-gold/10 text-brand-gold px-2 py-1 rounded capitalize font-medium">
-                      {k}: {Math.round(v*100)}%
+                  <span className="text-[10px] bg-brand-gold/10 text-brand-gold px-2 py-1 rounded font-medium">
+                    Serviço: {Math.round(PROFESSIONAL_SERVICE_COMMISSION_RATE * 100)}% profissional / 50% salão
+                  </span>
+                  {PROFESSIONAL_SALES_COMMISSION_FIELDS.filter(({ key }) => p.commissions[key] > 0).map(({ key, label }) => (
+                    <span key={key} className="text-[10px] bg-brand-gold/10 text-brand-gold px-2 py-1 rounded font-medium">
+                      Venda de {label}: {Math.round(p.commissions[key] * 100)}%
                     </span>
                   ))}
-                  {Object.values(p.commissions).every(v => v === 0) && <span className="text-xs text-muted-foreground italic">Nenhuma configurada</span>}
+                  {PROFESSIONAL_SALES_COMMISSION_FIELDS.every(({ key }) => p.commissions[key] === 0) && (
+                    <span className="text-xs text-muted-foreground italic">Nenhuma comissão de venda configurada</span>
+                  )}
                 </div>
               </div>
 
