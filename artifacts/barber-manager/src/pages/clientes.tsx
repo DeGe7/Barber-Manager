@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { formatDateKey, parseDateKey } from '@/data/date';
+import { normalizeClientPhone } from '@/data/client-phone';
 
 const TABS = ['Todos', 'Aniversariantes', 'Inativos', 'Origem / CAC'] as const;
 
@@ -72,9 +73,18 @@ export default function Clientes() {
     e.preventDefault();
     if (!form.name || !form.whatsapp) { toast.error('Nome e WhatsApp são obrigatórios'); return; }
     if (form.source === 'Outro' && !form.sourceOther.trim()) { toast.error('Descreva a origem do cliente'); return; }
+    const normalizedPhone = normalizeClientPhone(form.whatsapp);
+    const duplicatePhone = normalizedPhone.length > 0 && clients.some(client =>
+      client.id !== editingId && normalizeClientPhone(client.whatsapp) === normalizedPhone,
+    );
+    if (duplicatePhone) { toast.error('Telefone já cadastrado'); return; }
     const saved = editingId ? await updateClient(editingId, form) : await addClient(form);
     if (!saved) return;
-    toast.success(editingId ? 'Cliente atualizado' : 'Cliente cadastrado');
+    toast.success(editingId
+      ? 'Cliente atualizado'
+      : saved && typeof saved === 'object' && !saved.wasCreated
+        ? 'Telefone já cadastrado; cliente existente mantido.'
+        : 'Cliente cadastrado');
     setIsOpen(false);
   };
 
@@ -101,7 +111,7 @@ export default function Clientes() {
   };
 
   return (
-    <div className="p-5 md:p-8 space-y-6 max-w-7xl mx-auto">
+    <div className="min-w-0 p-3 sm:p-5 md:p-8 space-y-6 max-w-7xl mx-auto">
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-foreground">Clientes</h2>
@@ -110,18 +120,18 @@ export default function Clientes() {
         
         <Dialog open={isOpen} onOpenChange={setIsOpen}>
           <DialogTrigger asChild>
-            <button onClick={handleOpenNew} className="bg-brand-gold text-brand-bg px-4 py-2 rounded-lg text-sm font-bold hover:bg-brand-gold/90 flex items-center gap-2 transition-all">
+            <button onClick={handleOpenNew} className="min-h-11 w-full md:w-auto justify-center bg-brand-gold text-brand-bg px-4 py-2 rounded-lg text-sm font-bold hover:bg-brand-gold/90 flex items-center gap-2 transition-all">
               <UserPlus className="w-4 h-4" /> Novo Cliente
             </button>
           </DialogTrigger>
-          <DialogContent className="bg-brand-surface border-brand-border text-foreground">
+          <DialogContent className="w-[calc(100vw-1.5rem)] max-h-[90dvh] overflow-y-auto bg-brand-surface border-brand-border text-foreground sm:max-w-lg">
             <DialogHeader><DialogTitle>{editingId ? 'Editar Cliente' : 'Novo Cliente'}</DialogTitle></DialogHeader>
-            <form onSubmit={handleSubmit} className="space-y-4 pt-4">
+            <form onSubmit={handleSubmit} className="space-y-4 pt-4 [&_input]:min-h-11 [&_select]:min-h-11">
               <div>
                 <label className="text-xs font-semibold text-muted-foreground uppercase">Nome *</label>
                 <input type="text" required value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="w-full bg-brand-bg border border-brand-border rounded-lg px-3 py-2 mt-1 text-sm outline-none focus:ring-1 focus:ring-brand-gold" />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs font-semibold text-muted-foreground uppercase">WhatsApp *</label>
                   <input type="text" required value={form.whatsapp} onChange={e => setForm(f => ({ ...f, whatsapp: e.target.value }))} className="w-full bg-brand-bg border border-brand-border rounded-lg px-3 py-2 mt-1 text-sm outline-none focus:ring-1 focus:ring-brand-gold" />
@@ -131,7 +141,7 @@ export default function Clientes() {
                   <input type="date" value={form.birthday} onChange={e => setForm(f => ({ ...f, birthday: e.target.value }))} className="w-full bg-brand-bg border border-brand-border rounded-lg px-3 py-2 mt-1 text-sm outline-none focus:ring-1 focus:ring-brand-gold" />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="text-xs font-semibold text-muted-foreground uppercase">Email</label>
                   <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} className="w-full bg-brand-bg border border-brand-border rounded-lg px-3 py-2 mt-1 text-sm outline-none focus:ring-1 focus:ring-brand-gold" />
@@ -155,7 +165,7 @@ export default function Clientes() {
                     <input required type="text" value={form.sourceOther} onChange={e => setForm(f => ({ ...f, sourceOther: e.target.value }))} className="w-full bg-brand-bg border border-brand-border rounded-lg px-3 py-2 mt-1 text-sm outline-none focus:ring-1 focus:ring-brand-gold" placeholder="Ex.: indicação de parceiro" />
                   </div>
                 )}
-              <button type="submit" className="w-full bg-brand-gold text-brand-bg font-bold py-2 rounded-lg hover:bg-brand-gold/90 transition-all">Salvar Cliente</button>
+              <button type="submit" className="min-h-11 w-full bg-brand-gold text-brand-bg font-bold py-2 rounded-lg hover:bg-brand-gold/90 transition-all">Salvar Cliente</button>
             </form>
           </DialogContent>
         </Dialog>
@@ -163,13 +173,13 @@ export default function Clientes() {
 
       <div className="flex border-b border-brand-border overflow-x-auto hide-scrollbar">
         {TABS.map(tab => (
-          <button key={tab} onClick={() => setActiveTab(tab)} className={`px-4 py-3 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${activeTab === tab ? 'border-brand-gold text-brand-gold' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>
+          <button key={tab} onClick={() => setActiveTab(tab)} className={`min-h-11 px-4 py-3 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${activeTab === tab ? 'border-brand-gold text-brand-gold' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>
             {tab}
           </button>
         ))}
       </div>
 
-      <div className="bg-brand-surface border border-brand-border rounded-2xl p-6">
+      <div className="min-w-0 bg-brand-surface border border-brand-border rounded-2xl p-3 sm:p-6">
         {isLoading ? (
           <div className="space-y-3">{Array.from({length: 5}).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
         ) : (
@@ -178,7 +188,7 @@ export default function Clientes() {
               <div className="space-y-4">
                 <div className="relative max-w-md">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <input type="text" placeholder="Buscar por nome, email ou whatsapp..." value={search} onChange={e => setSearch(e.target.value)} className="w-full bg-brand-bg border border-brand-border rounded-lg pl-9 pr-4 py-2 text-sm text-foreground focus:ring-1 focus:ring-brand-gold outline-none transition-all" />
+                  <input type="text" placeholder="Buscar por nome, email ou whatsapp..." value={search} onChange={e => setSearch(e.target.value)} className="min-h-11 w-full bg-brand-bg border border-brand-border rounded-lg pl-9 pr-4 py-2 text-sm text-foreground focus:ring-1 focus:ring-brand-gold outline-none transition-all" />
                 </div>
                 
                 {displayed.length === 0 ? (
@@ -221,7 +231,7 @@ export default function Clientes() {
                                       <DialogTrigger asChild>
                                         <button onClick={() => setSelectedClient(c)} aria-label={`Ver ficha de ${c.name}`} className="p-2 text-brand-gold hover:bg-brand-gold/10 rounded-lg transition-all hover:scale-105"><Eye className="w-4 h-4" /></button>
                                       </DialogTrigger>
-                                      <DialogContent className="bg-brand-surface border-brand-border text-foreground max-w-2xl max-h-[85vh] overflow-y-auto">
+                                      <DialogContent className="w-[calc(100vw-1.5rem)] max-h-[90dvh] overflow-y-auto bg-brand-surface border-brand-border text-foreground sm:max-w-2xl">
                                         <DialogHeader><DialogTitle>Ficha do Cliente: {selectedClient?.name}</DialogTitle></DialogHeader>
                                         {selectedClient && (
                                           <div className="space-y-6 pt-4">
@@ -288,35 +298,59 @@ export default function Clientes() {
                         const tkm = c.visits.length ? total / c.visits.length : 0;
                         const isBday = c.birthday?.slice(5,7) === currentMonth;
                         return (
-                          <div key={c.id} className="p-4 bg-brand-bg border border-brand-border rounded-xl">
-                            <div className="flex justify-between items-start mb-2">
-                              <div>
-                                <p className="font-bold text-sm flex items-center gap-1">
+                          <div data-testid={`mobile-client-card-${c.id}`} key={c.id} className="min-w-0 p-4 bg-brand-bg border border-brand-border rounded-xl">
+                            <div className="flex justify-between items-start gap-2 mb-2">
+                              <div className="min-w-0">
+                                <p data-testid={`mobile-client-name-${c.id}`} className="min-w-0 break-words [overflow-wrap:anywhere] font-bold text-sm flex items-center gap-1">
                                   {c.name} {isBday && <Cake className="w-3 h-3 text-brand-gold" aria-label="Aniversário este mês" />}
                                 </p>
                                 <p className="text-xs text-muted-foreground">{c.whatsapp}</p>
                               </div>
-                              <div className="flex gap-1">
+                              <div className="flex shrink-0 gap-1">
                                 <Dialog>
                                   <DialogTrigger asChild>
-                                    <button onClick={() => setSelectedClient(c)} aria-label={`Ver ficha de ${c.name}`} className="p-1.5 text-brand-gold hover:bg-brand-gold/10 rounded-lg transition-all hover:scale-105"><Eye className="w-4 h-4" /></button>
+                                    <button onClick={() => setSelectedClient(c)} aria-label={`Ver ficha de ${c.name}`} className="flex min-h-11 min-w-11 items-center justify-center text-brand-gold hover:bg-brand-gold/10 rounded-lg transition-all hover:scale-105"><Eye className="w-4 h-4" /></button>
                                   </DialogTrigger>
-                                  <DialogContent className="bg-brand-surface border-brand-border text-foreground max-w-2xl max-h-[85vh] overflow-y-auto">
+                                  <DialogContent className="w-[calc(100vw-1.5rem)] max-h-[90dvh] overflow-y-auto bg-brand-surface border-brand-border text-foreground sm:max-w-2xl">
                                     <DialogHeader><DialogTitle>Ficha: {selectedClient?.name}</DialogTitle></DialogHeader>
                                     {selectedClient && (
-                                      <div className="space-y-4 pt-4">
-                                        <div className="grid grid-cols-2 gap-3 bg-brand-bg p-4 rounded-xl border border-brand-border">
+                                      <div className="space-y-5 pt-4">
+                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-brand-bg p-4 rounded-xl border border-brand-border">
                                           <div><p className="text-xs text-muted-foreground">Visitas</p><p className="font-bold">{selectedClient.visits.length}</p></div>
                                           <div><p className="text-xs text-muted-foreground">Total Gasto</p><p className="font-bold text-success">{brl(selectedClient.visits.reduce((s:any, v:any) => s + v.amount, 0))}</p></div>
+                                          <div><p className="text-xs text-muted-foreground">Ticket Médio</p><p className="font-bold">{brl(selectedClient.visits.length ? selectedClient.visits.reduce((s:any, v:any) => s + v.amount, 0) / selectedClient.visits.length : 0)}</p></div>
+                                          <div><p className="text-xs text-muted-foreground">Cadastrado em</p><p className="font-bold">{selectedClient.createdAt.split('-').reverse().join('/')}</p></div>
                                         </div>
-                                        <p className="text-sm text-muted-foreground">Histórico de visitas disponível na versão desktop.</p>
+                                        <div>
+                                          <h4 className="font-bold mb-3">Adicionar Visita Manual</h4>
+                                          <form onSubmit={handleAddVisit} className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-brand-bg p-4 rounded-xl border border-brand-border [&_input]:min-h-11 [&_select]:min-h-11">
+                                            <div><label className="text-[10px] uppercase">Data</label><input type="date" required value={visitForm.date} onChange={e => setVisitForm(f => ({...f, date: e.target.value}))} className="w-full bg-brand-surface border border-brand-border rounded px-2 py-2 text-sm outline-none" /></div>
+                                            <div><label className="text-[10px] uppercase">Tipo</label><select value={visitForm.type} onChange={e => setVisitForm(f => ({...f, type: e.target.value as 'servico'|'produto'}))} className="w-full bg-brand-surface border border-brand-border rounded px-2 py-2 text-sm outline-none"><option value="servico">Serviço</option><option value="produto">Produto</option></select></div>
+                                            <div className="sm:col-span-2"><label className="text-[10px] uppercase">Descrição</label><input type="text" required value={visitForm.description} onChange={e => setVisitForm(f => ({...f, description: e.target.value}))} className="w-full bg-brand-surface border border-brand-border rounded px-2 py-2 text-sm outline-none" /></div>
+                                            <div><label className="text-[10px] uppercase">Valor</label><input type="number" required value={visitForm.amount} onChange={e => setVisitForm(f => ({...f, amount: Number(e.target.value)}))} className="w-full bg-brand-surface border border-brand-border rounded px-2 py-2 text-sm outline-none" /></div>
+                                            <button type="submit" className="min-h-11 self-end bg-brand-gold text-brand-bg px-3 py-2 rounded text-sm font-bold">Salvar visita</button>
+                                          </form>
+                                        </div>
+                                        <div>
+                                          <h4 className="font-bold mb-3">Histórico</h4>
+                                          <div className="space-y-2">
+                                            {selectedClient.visits.length === 0 ? <p className="text-sm text-muted-foreground">Nenhuma visita registrada.</p> :
+                                              [...selectedClient.visits].sort((a,b) => b.date.localeCompare(a.date)).map((v:any) => (
+                                                <div data-testid={`mobile-client-visit-${v.id}`} key={v.id} className="flex min-w-0 flex-col sm:flex-row sm:justify-between sm:items-center gap-2 p-3 border border-brand-border/50 rounded-lg">
+                                                  <div className="min-w-0"><p data-testid={`mobile-client-visit-description-${v.id}`} className="min-w-0 text-sm font-medium break-words [overflow-wrap:anywhere]">{v.description}</p><p className="text-xs text-muted-foreground">{v.date.split('-').reverse().join('/')} • {v.type}</p></div>
+                                                  <div className="flex items-center justify-between sm:justify-end gap-3"><span className="font-bold">{brl(v.amount)}</span><button aria-label="Remover visita" onClick={async () => { if (await removeVisit(selectedClient.id, v.id)) toast.success('Removido'); }} className="flex min-h-11 min-w-11 items-center justify-center text-destructive hover:bg-destructive/10 rounded transition-all"><Trash2 className="w-4 h-4"/></button></div>
+                                                </div>
+                                              ))
+                                            }
+                                          </div>
+                                        </div>
                                       </div>
                                     )}
                                   </DialogContent>
                                 </Dialog>
-                                <button onClick={() => handleOpenEdit(c)} aria-label={`Editar ${c.name}`} className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-brand-bg rounded-lg transition-all hover:scale-105"><Edit className="w-4 h-4" /></button>
+                                <button onClick={() => handleOpenEdit(c)} aria-label={`Editar ${c.name}`} className="flex min-h-11 min-w-11 items-center justify-center text-muted-foreground hover:text-foreground hover:bg-brand-bg rounded-lg transition-all hover:scale-105"><Edit className="w-4 h-4" /></button>
                                 <AlertDialog>
-                                  <AlertDialogTrigger asChild><button aria-label={`Excluir ${c.name}`} className="p-1.5 text-destructive hover:bg-destructive/10 rounded-lg transition-all hover:scale-105"><Trash2 className="w-4 h-4" /></button></AlertDialogTrigger>
+                                   <AlertDialogTrigger asChild><button aria-label={`Excluir ${c.name}`} className="flex min-h-11 min-w-11 items-center justify-center text-destructive hover:bg-destructive/10 rounded-lg transition-all hover:scale-105"><Trash2 className="w-4 h-4" /></button></AlertDialogTrigger>
                                   <AlertDialogContent className="bg-brand-surface border-brand-border text-foreground">
                                     <AlertDialogHeader><AlertDialogTitle>Excluir cliente?</AlertDialogTitle><AlertDialogDescription>Excluirá todo o histórico.</AlertDialogDescription></AlertDialogHeader>
                                     <AlertDialogFooter><AlertDialogCancel className="bg-brand-bg border-brand-border">Cancelar</AlertDialogCancel><AlertDialogAction onClick={async () => {if (await removeClient(c.id)) toast.success('Excluído');}} className="bg-destructive text-destructive-foreground">Excluir</AlertDialogAction></AlertDialogFooter>
@@ -324,7 +358,7 @@ export default function Clientes() {
                                 </AlertDialog>
                               </div>
                             </div>
-                            <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                            <div className="flex flex-wrap justify-between gap-2 text-xs text-muted-foreground mt-1">
                               <span>Última: {lastV ? lastV.split('-').reverse().join('/') : 'Nunca'}</span>
                               <span>Ticket: <span className="font-bold text-foreground">{brl(tkm)}</span></span>
                             </div>
@@ -347,14 +381,14 @@ export default function Clientes() {
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {aniversariantes.map(c => (
-                      <div key={c.id} className="p-4 border border-brand-border rounded-xl bg-brand-bg flex flex-col gap-3">
+                      <div data-testid={`birthday-client-card-${c.id}`} key={c.id} className="p-4 border border-brand-border rounded-xl bg-brand-bg flex flex-col gap-3">
                         <div className="flex justify-between items-start">
-                          <div>
-                            <p className="font-bold">{c.name}</p>
+                          <div className="min-w-0">
+                            <p data-testid={`birthday-client-name-${c.id}`} className="min-w-0 break-words [overflow-wrap:anywhere] font-bold">{c.name}</p>
                             <p className="text-sm text-brand-gold mt-1"><Cake className="w-3 h-3 inline mr-1" /> {c.birthday?.split('-').reverse().slice(0,2).join('/')}</p>
                           </div>
                         </div>
-                        <button onClick={() => sendWpp(c.whatsapp, `Olá ${c.name}! A Barbearia deseja um feliz aniversário! Temos um presente para você...`)} className="w-full bg-[#25D366]/10 text-[#25D366] hover:bg-[#25D366]/20 font-medium py-2 rounded-lg text-sm flex items-center justify-center gap-2 transition-colors">
+                        <button onClick={() => sendWpp(c.whatsapp, `Olá ${c.name}! A Barbearia deseja um feliz aniversário! Temos um presente para você...`)} className="min-h-11 w-full bg-[#25D366]/10 text-[#25D366] hover:bg-[#25D366]/20 font-medium py-2 rounded-lg text-sm flex items-center justify-center gap-2 transition-colors">
                           <MessageSquare className="w-4 h-4" /> Enviar Parabéns
                         </button>
                       </div>
@@ -403,13 +437,13 @@ export default function Clientes() {
                     {/* Mobile cards */}
                     <div className="md:hidden space-y-3">
                       {inativos.sort((a,b) => b.daysSince - a.daysSince).map(c => (
-                        <div key={c.id} className="p-4 bg-brand-bg border border-brand-border rounded-xl flex justify-between items-center">
-                          <div>
-                            <p className="font-bold text-sm">{c.name}</p>
+                         <div data-testid={`inactive-client-card-${c.id}`} key={c.id} className="p-4 bg-brand-bg border border-brand-border rounded-xl flex justify-between items-center gap-2">
+                           <div className="min-w-0">
+                             <p data-testid={`inactive-client-name-${c.id}`} className="min-w-0 break-words [overflow-wrap:anywhere] font-bold text-sm">{c.name}</p>
                             <p className="text-xs text-muted-foreground mt-0.5">Última: {c.lastV?.split('-').reverse().join('/')}</p>
                             <p className="text-xs text-destructive font-bold mt-0.5">{c.daysSince} dias inativo</p>
                           </div>
-                          <button onClick={() => sendWpp(c.whatsapp, `Olá ${c.name}! Sentimos sua falta na barbearia. Que tal agendar um horário esta semana?`)} aria-label={`Reativar contato com ${c.name}`} className="p-2 text-[#25D366] hover:bg-[#25D366]/10 rounded-lg transition-colors shrink-0">
+                          <button onClick={() => sendWpp(c.whatsapp, `Olá ${c.name}! Sentimos sua falta na barbearia. Que tal agendar um horário esta semana?`)} aria-label={`Reativar contato com ${c.name}`} className="flex min-h-11 min-w-11 items-center justify-center text-[#25D366] hover:bg-[#25D366]/10 rounded-lg transition-colors shrink-0">
                             <MessageSquare className="w-4 h-4" />
                           </button>
                         </div>
