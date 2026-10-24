@@ -1,6 +1,5 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
   description: API specification
@@ -10,6 +9,10 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: invitations
+    description: Invitation delivery
+  - name: administration
+    description: Administrative account provisioning
 paths:
   /healthz:
     get:
@@ -24,7 +27,193 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /invitations/{invitationId}/email:
+    post:
+      operationId: sendInvitationEmail
+      tags: [invitations]
+      summary: Send an organization invitation email
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: invitationId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 36
+            maxLength: 36
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InvitationEmailSendInput"
+      responses:
+        "200":
+          description: Invitation email accepted by the provider
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvitationEmailSendResult"
+        "400":
+          description: Invalid invitation email request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Invitation not found or not accessible
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Invitation is no longer active
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Resend rate limit reached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: Email provider rejected the request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /admin/dev-admins:
+    post:
+      operationId: provisionDevAdmin
+      tags: [administration]
+      summary: Provision an administrative account for the authenticated organization
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DevAdminProvisionInput"
+      responses:
+        "200":
+          description: Account access provisioned and a secure password setup link generated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DevAdminProvisionResult"
+        "400":
+          description: Invalid email, organization, or application origin
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Caller cannot manage the selected organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Existing account membership cannot be safely replaced
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: Supabase operation failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Secure provisioning configuration is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /admin/organization-managers:
+    post:
+      operationId: provisionOrganizationManager
+      tags: [administration]
+      summary: Grant manager access to an existing account in the authenticated organization
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrganizationManagerProvisionInput"
+      responses:
+        "200":
+          description: Manager membership was granted and audited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationManagerProvisionResult"
+        "400":
+          description: Invalid email or organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Caller is not an active manager of the selected organization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Auth account does not exist
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Existing account membership cannot be safely replaced
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: Supabase operation failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Audit schema is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
   schemas:
     HealthStatus:
       type: object
@@ -33,4 +222,99 @@ components:
           type: string
       required:
         - status
-
+    InvitationEmailSendInput:
+      type: object
+      required:
+        - token
+        - invitationUrl
+        - consentConfirmed
+      properties:
+        token:
+          type: string
+          minLength: 1
+          maxLength: 128
+        invitationUrl:
+          type: string
+          minLength: 1
+          maxLength: 2048
+        consentConfirmed:
+          type: boolean
+    InvitationEmailSendResult:
+      type: object
+      required:
+        - emailId
+        - status
+      properties:
+        emailId:
+          type: string
+        status:
+          type: string
+          enum: [sent]
+    DevAdminProvisionInput:
+      type: object
+      required: [email, organizationId]
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          pattern: "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"
+          maxLength: 254
+        organizationId:
+          type: string
+          pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+    DevAdminProvisionResult:
+      type: object
+      required: [email, organizationId, actionLink, createdIdentity, membershipCreated]
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          pattern: "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"
+        organizationId:
+          type: string
+          pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+        actionLink:
+          type: string
+        createdIdentity:
+          type: boolean
+        membershipCreated:
+          type: boolean
+    OrganizationManagerProvisionInput:
+      type: object
+      required: [email, organizationId]
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          pattern: "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"
+          maxLength: 254
+        organizationId:
+          type: string
+          pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+    OrganizationManagerProvisionResult:
+      type: object
+      required: [email, organizationId, fullName, createdProfile, membershipCreated, grantedAt]
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          pattern: "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"
+        organizationId:
+          type: string
+          pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+        fullName:
+          type: string
+        createdProfile:
+          type: boolean
+        membershipCreated:
+          type: boolean
+        grantedAt:
+          type: string
+          format: date-time
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
