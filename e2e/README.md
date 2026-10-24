@@ -24,6 +24,22 @@ fully provisioned isolated suite with:
 pnpm e2e:isolated
 ```
 
+### Professional deletion regression
+
+Apply `supabase/migrations/2026-10-13-delete-professionals-preserve-history.sql`
+to the **dedicated test project only** before running:
+
+```bash
+CI=true E2E_PROVISION=true E2E_START_SERVER=true pnpm exec playwright test --config=e2e/playwright.config.ts e2e/tests/professional-deletion.spec.ts
+```
+
+These scenarios require the provisioned local test server and refuse to run
+against a pre-running app. They seed disposable attendance, blocking, prosthesis,
+mentoring, subscription and payment history; verify cancellation, confirmation,
+and a simulated missing RPC; compare stored business data and displayed financial
+totals after reload. The missing RPC is intercepted in the browser, not dropped
+from Supabase. Existing scenario/global teardown cleans the fixtures even on failure.
+
 ## Automatic disposable environment
 
 For a complete matrix without manually prepared accounts, point the suite at a
