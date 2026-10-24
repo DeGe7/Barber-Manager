@@ -506,34 +506,33 @@
   animation-delay: -2s;
 }
 
-.bm-hair-strands {
-  transform-origin: 100px 80px;
-  animation: bm-hair-sway 1.6s ease-in-out infinite;
+.bm-brand-mark {
+  position: relative;
+  isolation: isolate;
+  box-shadow: inset 0 1px 0 hsl(var(--brand-gold) / 0.12), 0 14px 40px hsl(0 0% 0% / 0.24);
 }
 
-.bm-scissor-upper,
-.bm-scissor-lower {
-  transform-box: view-box;
-  transform-origin: 50% 50%;
+.bm-brand-orbit {
+  position: absolute;
+  inset: 12px;
+  border: 1px solid hsl(var(--brand-gold) / 0.22);
+  border-top-color: hsl(var(--brand-gold));
+  border-right-color: hsl(var(--brand-gold) / 0.7);
+  border-radius: 1.5rem;
+  animation: bm-brand-orbit 2.8s linear infinite;
 }
 
-.bm-scissor-upper {
-  animation: bm-shear-upper 850ms ease-in-out infinite;
-}
-
-.bm-scissor-lower {
-  animation: bm-shear-lower 850ms ease-in-out infinite;
-}
-
-.bm-hair-cut {
-  opacity: 0;
-  animation: bm-cut-flash 850ms ease-in-out infinite;
-}
-
-.bm-hair-fragment {
-  opacity: 0;
-  transform-origin: center;
-  animation: bm-hair-fragment 850ms ease-out infinite;
+.bm-brand-monogram {
+  display: flex;
+  align-items: baseline;
+  gap: 0.04em;
+  padding-right: 0.08em;
+  font-size: 3.75rem;
+  font-weight: 900;
+  letter-spacing: -0.13em;
+  line-height: 1;
+  text-shadow: 0 0 28px hsl(var(--brand-gold) / 0.16);
+  animation: bm-brand-breathe 2s ease-in-out infinite;
 }
 
 .bm-loading-progress {
@@ -550,30 +549,13 @@
   to { translate: 16px 12px; scale: 1.08; }
 }
 
-@keyframes bm-hair-sway {
-  0%, 100% { transform: translateX(-2px); }
-  50% { transform: translateX(2px); }
+@keyframes bm-brand-orbit {
+  to { transform: rotate(360deg); }
 }
 
-@keyframes bm-shear-upper {
-  0%, 100% { transform: rotate(-7deg); }
-  50% { transform: rotate(5deg); }
-}
-
-@keyframes bm-shear-lower {
-  0%, 100% { transform: rotate(7deg); }
-  50% { transform: rotate(-5deg); }
-}
-
-@keyframes bm-cut-flash {
-  0%, 38%, 100% { opacity: 0; }
-  48%, 58% { opacity: 0.9; }
-}
-
-@keyframes bm-hair-fragment {
-  0%, 38%, 100% { opacity: 0; transform: translate(0, 0) rotate(0); }
-  48% { opacity: 0.9; }
-  78% { opacity: 0; transform: translate(8px, 13px) rotate(28deg); }
+@keyframes bm-brand-breathe {
+  0%, 100% { transform: scale(0.96); opacity: 0.88; }
+  50% { transform: scale(1.04); opacity: 1; }
 }
 
 @keyframes bm-loading-progress {
@@ -585,11 +567,8 @@
 @media (prefers-reduced-motion: reduce) {
   .bm-loading-screen,
   .bm-loading-glow,
-  .bm-hair-strands,
-  .bm-scissor-upper,
-  .bm-scissor-lower,
-  .bm-hair-cut,
-  .bm-hair-fragment,
+  .bm-brand-orbit,
+  .bm-brand-monogram,
   .bm-loading-progress {
     animation: none;
   }
