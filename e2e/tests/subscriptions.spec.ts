@@ -14,6 +14,13 @@ function toDateInputValue(displayDate: string) {
   return `${year}-${month}-${day}`;
 }
 
+let clientPhoneSequence = Date.now() % 100_000_000;
+
+function uniqueClientPhone() {
+  clientPhoneSequence = (clientPhoneSequence + 1) % 100_000_000;
+  return `119${String(clientPhoneSequence).padStart(8, '0')}`;
+}
+
 test.describe('mensalidades presenciais', () => {
   test.beforeEach(async ({ page }) => {
     if (!accounts.manager) {
@@ -21,6 +28,63 @@ test.describe('mensalidades presenciais', () => {
       return;
     }
     await loginAs(page, accounts.manager);
+  });
+
+  test('cadastre o cliente ao assinar e reutilize-o pela busca', async ({ page }) => {
+    const planName = uniqueName('Plano cliente assinante E2E');
+    const clientName = uniqueName('Cliente do plano E2E');
+    const phone = uniqueClientPhone();
+    let clientCreateRequests = 0;
+    page.on('request', request => {
+      if (
+        request.url().includes('/rest/v1/rpc/create_or_get_client_by_phone')
+        && request.method() === 'POST'
+      ) {
+        clientCreateRequests += 1;
+      }
+    });
+
+    await openModule(page, '/planos', 'Planos Disponíveis');
+    await page.getByRole('button', { name: 'Novo Plano', exact: true }).click();
+    let dialog = page.getByRole('dialog');
+    await dialog.locator('input').nth(0).fill(planName);
+    await dialog.locator('input').nth(1).fill('149');
+    await dialog.getByRole('combobox').nth(0).selectOption({ index: 1 });
+    await dialog.locator('input').nth(2).fill('4');
+    await dialog.getByRole('button', { name: 'Salvar Plano', exact: true }).click();
+    await expect(page.getByText(planName, { exact: true }).first()).toBeVisible();
+
+    async function addSubscriberByTyping() {
+      await page.getByRole('button', { name: 'Adicionar Assinante', exact: true }).click();
+      dialog = page.getByRole('dialog');
+      await dialog.getByTestId('input-subscriber-client-name').fill(clientName);
+      await dialog.getByTestId('input-subscriber-client-phone').fill(phone);
+      await dialog.locator('select').nth(0).selectOption({ label: planName });
+      await dialog.locator('input[type="date"]').fill(today());
+      await dialog.getByRole('button', { name: 'Salvar Assinante', exact: true }).click();
+      await expect(page.locator('tbody tr').filter({ hasText: clientName }).first()).toBeVisible();
+      await settleMutation(page);
+    }
+
+    await addSubscriberByTyping();
+    expect(clientCreateRequests).toBe(1);
+
+    await openModule(page, '/clientes', 'Clientes');
+    await page.getByPlaceholder('Buscar por nome, email ou whatsapp...').fill(clientName);
+    await expect(page.getByText(clientName, { exact: true }).first()).toBeVisible();
+
+    await openModule(page, '/planos', 'Planos Disponíveis');
+    await page.getByRole('button', { name: 'Adicionar Assinante', exact: true }).click();
+    dialog = page.getByRole('dialog');
+    await dialog.getByTestId('input-subscriber-client-search').fill(clientName);
+    await dialog.getByRole('button').filter({ hasText: clientName }).first().click();
+    await expect(dialog.getByTestId('input-subscriber-client-name')).toHaveValue(clientName);
+    await expect(dialog.getByTestId('input-subscriber-client-phone')).toHaveValue(phone);
+    await dialog.locator('select').nth(0).selectOption({ label: planName });
+    await dialog.locator('input[type="date"]').fill(today());
+    await dialog.getByRole('button', { name: 'Salvar Assinante', exact: true }).click();
+    await expect(page.locator('tbody tr').filter({ hasText: clientName })).toHaveCount(2);
+    expect(clientCreateRequests).toBe(1);
   });
 
   test('mantém pagamentos, vencimento e estados após recarregar', async ({ page }) => {
@@ -31,6 +95,7 @@ test.describe('mensalidades presenciais', () => {
     const paidNote = 'Recebido no balcão pelo gestor';
     const pendingNote = 'Aguardando pagamento no balcão';
     const overdueNote = 'Cobrança presencial pendente';
+    const subscriberPhones = new Map<string, string>();
 
     await openModule(page, '/planos', 'Planos Disponíveis');
 
@@ -38,18 +103,20 @@ test.describe('mensalidades presenciais', () => {
     let dialog = page.getByRole('dialog');
     await dialog.locator('input').nth(0).fill(planName);
     await dialog.locator('input').nth(1).fill('149');
-    await dialog.locator('input').nth(2).fill('4 cortes');
+    await dialog.getByRole('combobox').nth(0).selectOption({ index: 1 });
+    await dialog.locator('input').nth(2).fill('4');
     await dialog.getByRole('button', { name: 'Salvar Plano', exact: true }).click();
     await expect(page.getByText(planName, { exact: true }).first()).toBeVisible();
     await settleMutation(page);
 
     async function createSubscriber(name: string) {
+      const phone = uniqueClientPhone();
+      subscriberPhones.set(name, phone);
       await page.getByRole('button', { name: 'Adicionar Assinante', exact: true }).click();
       dialog = page.getByRole('dialog');
-      await dialog.locator('input').nth(0).fill(name);
-      await dialog.locator('input').nth(1).fill('11955554444');
+      await dialog.getByTestId('input-subscriber-client-name').fill(name);
+      await dialog.getByTestId('input-subscriber-client-phone').fill(phone);
       await dialog.locator('select').nth(0).selectOption({ label: planName });
-      await dialog.locator('select').nth(1).selectOption({ index: 1 });
       await dialog.locator('input[type="date"]').fill(today());
       await dialog.getByRole('button', { name: 'Salvar Assinante', exact: true }).click();
       const row = page.locator('tbody tr').filter({ hasText: name });
@@ -220,6 +287,7 @@ test.describe('mensalidades presenciais', () => {
     const nextWeekSubscriber = uniqueName('Aviso próxima semana E2E');
     const nextMonthSubscriber = uniqueName('Aviso próximo mês E2E');
     const laterSubscriber = uniqueName('Aviso distante E2E');
+    const subscriberPhones = new Map<string, string>();
 
     function shiftDays(value: string, amount: number) {
       const [year, month, day] = value.split('-').map(Number);
@@ -253,8 +321,9 @@ test.describe('mensalidades presenciais', () => {
       const dialog = page.getByRole('dialog');
       await dialog.locator('input').nth(0).fill(name);
       await dialog.locator('input').nth(1).fill('149');
-      await dialog.locator('input').nth(2).fill('4 cortes');
-      await dialog.locator('select').selectOption({ label: duration });
+      await dialog.getByRole('combobox').nth(0).selectOption({ index: 1 });
+      await dialog.locator('input').nth(2).fill('4');
+      await dialog.getByRole('combobox').nth(1).selectOption({ label: duration });
       await dialog.getByRole('button', { name: 'Salvar Plano', exact: true }).click();
       await expect(page.getByText(name, { exact: true }).first()).toBeVisible();
       await settleMutation(page);
@@ -272,12 +341,13 @@ test.describe('mensalidades presenciais', () => {
     await createPlan(annualPlanName, 'Anual');
 
     async function createSubscriber(name: string, planName: string, startDate: string) {
+      const phone = uniqueClientPhone();
+      subscriberPhones.set(name, phone);
       await page.getByRole('button', { name: 'Adicionar Assinante', exact: true }).click();
       const dialog = page.getByRole('dialog');
-      await dialog.locator('input').nth(0).fill(name);
-      await dialog.locator('input').nth(1).fill('11955554444');
+      await dialog.getByTestId('input-subscriber-client-name').fill(name);
+      await dialog.getByTestId('input-subscriber-client-phone').fill(phone);
       await dialog.locator('select').nth(0).selectOption({ label: planName });
-      await dialog.locator('select').nth(1).selectOption({ index: 1 });
       await dialog.locator('input[type="date"]').fill(startDate);
       await dialog.getByRole('button', { name: 'Salvar Assinante', exact: true }).click();
       const row = page.locator('tbody tr').filter({ hasText: name });
@@ -356,7 +426,7 @@ test.describe('mensalidades presenciais', () => {
     const popup = await whatsappPopup;
     const popupUrl = popup.url();
     expect(popupUrl).toContain('https://api.whatsapp.com/send/');
-    expect(popupUrl).toContain('phone=5511955554444');
+    expect(popupUrl).toContain(`phone=55${subscriberPhones.get(todaySubscriber)}`);
     const encodedMessage = popupUrl.match(/[?&]text=([^&]*)/)?.[1] ?? '';
     expect(decodeURIComponent(encodedMessage.replace(/\+/g, ' '))).toContain(todaySubscriber);
     await popup.close();
@@ -397,18 +467,20 @@ test.describe('mensalidades presenciais', () => {
       const dialog = page.getByRole('dialog');
       await dialog.locator('input').nth(0).fill(name);
       await dialog.locator('input').nth(1).fill('149');
-      await dialog.locator('input').nth(2).fill('4 cortes');
-      await dialog.locator('select').selectOption({ label: duration });
+      await dialog.getByRole('combobox').nth(0).selectOption({ index: 1 });
+      await dialog.locator('input').nth(2).fill('4');
+      await dialog.getByRole('combobox').nth(1).selectOption({ label: duration });
       await dialog.getByRole('button', { name: 'Salvar Plano', exact: true }).click();
       await expect(page.getByText(name, { exact: true }).first()).toBeVisible();
       await settleMutation(page);
     }
 
     async function createSubscriber(name: string, planName: string, startDate: string) {
+      const phone = uniqueClientPhone();
       await page.getByRole('button', { name: 'Adicionar Assinante', exact: true }).click();
       const dialog = page.getByRole('dialog');
-      await dialog.locator('input').nth(0).fill(name);
-      await dialog.locator('input').nth(1).fill('11955554444');
+      await dialog.getByTestId('input-subscriber-client-name').fill(name);
+      await dialog.getByTestId('input-subscriber-client-phone').fill(phone);
       await dialog.locator('select').nth(0).selectOption({ label: planName });
       await dialog.locator('select').nth(1).selectOption({ index: 1 });
       await dialog.locator('input[type="date"]').fill(startDate);
