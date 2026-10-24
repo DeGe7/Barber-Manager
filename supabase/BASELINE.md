@@ -1,19 +1,23 @@
-# Baseline aprovado do Supabase
+# Baseline remoto e remoção da integração de atendimento
 
-Status: baseline da fonte, E2E e produção aprovados e congelados em
-15/09/2026 para a etapa de integração externa.
+`2026-09-07` continua sendo o último estado verificado remotamente. O usuário
+informou que as migrações anteriores de Chatwoot foram aplicadas nos dois
+projetos Supabase. A remoção foi preparada na fonte, mas a nova migração ainda
+precisa ser aplicada e verificada nos dois projetos.
 
 ## Fonte e contratos
 
 - `supabase/schema.sql` é a fonte única do schema, funções RPC, triggers, RLS e
-  Storage. O marcador atual é `app_schema_version = 2026-09-07`.
+  Storage. A fonte espera `app_schema_version = 2026-10-14.1` e não inclui
+  objetos de Chatwoot.
 - `supabase/tests/access_control.sql` é a suíte de regressão das fronteiras de
   organização, profissional, permissões e Storage privado.
 - `artifacts/barber-manager/src/data/api.ts` é o contrato de acesso do cliente
   para tabelas e RPCs atuais.
 - `e2e/provision.ts` valida o marcador e o formato das tabelas antes de criar
   qualquer fixture; `e2e/playwright.config.ts` define o runner e o servidor
-  isolado da suíte.
+  isolado da suíte. A expectativa de `2026-09-30` ainda não foi verificada no
+  projeto E2E.
 
 ## Garantias incluídas
 
@@ -28,14 +32,15 @@ Status: baseline da fonte, E2E e produção aprovados e congelados em
 - Baixas de estoque e atualizações de mensalidades são confirmadas pelo
   servidor antes de refletir sucesso no cliente.
 
-## Registros da validação
+## Registros da validação remota
 
 - `pnpm typecheck`: aprovado.
 - `pnpm e2e:validate`: aprovado; 35 títulos E2E sem duplicidade.
 - `CI=true E2E_PROVISION=true E2E_START_SERVER=true pnpm exec playwright test
-  --config=e2e/playwright.config.ts --retries=1`: aprovado; 35/35 testes em
-  9,6 minutos, usando somente o projeto Supabase de teste dedicado. O fixture
-  foi removido pelo teardown.
+  --config=e2e/playwright.config.ts --retries=1`: último resultado registrado
+  como aprovado; 35/35 testes em 9,6 minutos, usando somente o projeto
+  Supabase de teste dedicado. Esse resultado não prova a aplicação da migração
+  de remoção descrita nesta baseline.
 - `PORT=23945 BASE_PATH=/ pnpm --filter @workspace/barber-manager run build`:
   aprovado. O build precisa dessas variáveis; executá-lo sem elas é uma falha
   de invocação, não uma falha do artefato.
@@ -46,18 +51,45 @@ Status: baseline da fonte, E2E e produção aprovados e congelados em
   para `/login`; `/cadastro` exibe `Nome e sobrenome`, rejeita senhas
   diferentes, permanece na rota e não emite requisição ao Supabase após o
   envio inválido. Resultado: 2/2 verificações aprovadas.
-- A checagem REST de produção respondeu HTTP 200 para
+- A checagem REST remota respondeu HTTP 200 para
   `communication_sends`, `subscription_payments` e `schema_metadata`. O
-  marcador `app_schema_version` está aplicado como `2026-09-07`. O probe
+  marcador `app_schema_version` estava aplicado como `2026-09-07`. O probe
   público do Storage retornou `400`, como esperado para um bucket privado.
+
+## Remoção da integração de atendimento
+
+- A migração `supabase/migrations/2026-10-12-remove-chatwoot.sql` apaga as
+  conexões e credenciais armazenadas, remove a tabela, limpa permissões antigas
+  e atualiza o marcador para `2026-10-12`.
+- Ela precisa ser executada manualmente nos dois projetos Supabase. Até a
+  aplicação e verificação, não se afirma paridade remota com a fonte.
 
 ## Decisão sobre a paridade de produção
 
-A fonte do repositório, o projeto E2E e a produção estão aprovados como
-baseline. O `schema.sql` atualizado foi aplicado em produção e no projeto E2E;
-o grant do helper `subscription_next_due(text, text)` também foi sincronizado
-nos dois projetos. O artefato foi republicado, e a produção e o smoke público
-foram aprovados após a publicação do bundle validado.
+### Exclusão de profissionais preservando histórico
+
+A migração `supabase/migrations/2026-10-13-delete-professionals-preserve-history.sql`
+permite excluir profissionais mantendo atendimentos, bloqueios, vendas,
+mentorias, assinaturas e pagamentos. Os vínculos ficam nulos; gestores continuam
+visualizando os registros. Contas vinculadas são desativadas no estabelecimento
+e convites pendentes são revogados. O usuário confirmou que esta migração foi
+aplicada nos dois projetos Supabase.
+
+### Exclusão do histórico de convites
+
+A migração `supabase/migrations/2026-10-14-delete-invitation-history.sql`
+adiciona um RPC que permite apenas a gestores excluírem permanentemente um
+convite do próprio estabelecimento. O usuário confirmou que ela foi aplicada nos
+dois projetos Supabase; a publicação atualizada da aplicação ainda é necessária.
+
+A migração `supabase/migrations/2026-10-14-invitation-history-bulk-cleanup.sql`
+adiciona a limpeza em lote de convites expirados ou revogados, preservando
+convites aceitos e pendentes. A aplicação dessa migração deve atualizar o
+marcador para `2026-10-14.1`; a execução remota ainda não foi confirmada.
+
+A fonte do repositório e o último estado remoto verificado `2026-09-07` são
+diferentes até que a migração de remoção seja aplicada e os probes sejam
+repetidos.
 
 Para preservar essa paridade em mudanças futuras, repetir:
 
