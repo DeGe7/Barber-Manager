@@ -106,6 +106,9 @@ test.describe('atribuição de vendas no Controle Diário', () => {
     await form.getByTestId(`input-attendance-manual-commission-${primaryId}`).fill('18.50');
     await form.getByTestId(`input-attendance-manual-commission-${secondId}`).fill('12');
     await form.getByTestId('input-attendance-service-value').fill('100');
+    await expect(form.getByTestId('attendance-manual-commission-balance')).toContainText('Faltam');
+    await form.getByTestId(`input-attendance-manual-commission-${secondId}`).fill('31.50');
+    await expect(form.getByTestId('attendance-manual-commission-balance')).toContainText('Divisão completa');
 
     const created = page.waitForResponse(response =>
       response.url().includes('/rest/v1/appointments') &&
@@ -122,7 +125,7 @@ test.describe('atribuição de vendas no Controle Diário', () => {
     expect(row.value).toBe(100);
     expect(row.professional_commissions).toEqual([
       { professionalId: primaryId, amount: 18.5 },
-      { professionalId: secondId, amount: 12 },
+      { professionalId: secondId, amount: 31.5 },
     ]);
   });
 
