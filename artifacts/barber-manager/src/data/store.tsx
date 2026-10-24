@@ -93,6 +93,7 @@ export interface Appointment {
   serviceId?: string;
   planSubscriberId?: string;
   planUsageValue?: number;
+  serviceCommissionRateSnapshot?: number;
   professionalCommissions?: ProfessionalCommissionAssignment[];
   sellerProfessionalId?: string;
   sellerIsCompany?: boolean;
