@@ -11,6 +11,10 @@ import { supabase } from '@/services/supabaseClient';
 import { api, type ProvisionedDevAdmin } from '@/data/api';
 import HistoryCleanup from '@/components/history-cleanup';
 import { isAssignableProfessional } from '@/data/professional-selection';
+import {
+  PROFESSIONAL_SALES_COMMISSION_FIELDS,
+  PROFESSIONAL_SERVICE_COMMISSION_RATE,
+} from '@/data/appointment-commissions';
 
 const SERVICE_COMMISSION_OPTIONS = [
   { value: 'barbearia', label: 'Barbearia' },
@@ -509,7 +513,9 @@ export default function Configuracoes() {
           <Users className="w-5 h-5 text-brand-gold" />
           <h3 className="text-lg font-bold text-foreground">Equipe e Comissões Rápida</h3>
         </div>
-        <p className="text-sm text-muted-foreground">Clique num profissional para ajustar as comissões. As edições são salvas automaticamente ao fechar.</p>
+        <p className="text-sm text-muted-foreground">
+          Serviços são divididos automaticamente: 50% para o profissional e 50% para o salão. Aqui você ajusta somente as comissões por venda.
+        </p>
         
         <div className="space-y-3">
           {activeProfs.map(p => (
@@ -532,14 +538,14 @@ export default function Configuracoes() {
               
               {expandedProfId === p.id && (
                 <div className="p-4 pt-0 border-t border-brand-border/50 bg-brand-bg">
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-4">
-                    {Object.entries(p.commissions).map(([key, val]) => (
+                  <div className="grid grid-cols-2 gap-3 mt-4">
+                    {PROFESSIONAL_SALES_COMMISSION_FIELDS.map(({ key, label }) => (
                       <div key={key}>
-                        <label className="text-[10px] text-muted-foreground uppercase">{key}</label>
+                        <label className="text-[10px] text-muted-foreground uppercase">{label}</label>
                         <div className="flex items-center mt-1 bg-brand-surface border border-brand-border rounded px-2">
                           <input 
                             type="number" min="0" max="100" 
-                            value={Math.round(val * 100)} 
+                            value={Math.round(p.commissions[key] * 100)}
                             onChange={e => updateProfessional(p.id, { commissions: {...p.commissions, [key]: Number(e.target.value)/100} })} 
                             className="w-full bg-transparent py-1 text-sm outline-none" 
                           />
@@ -548,6 +554,9 @@ export default function Configuracoes() {
                       </div>
                     ))}
                   </div>
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    Execução de serviço: {Math.round(PROFESSIONAL_SERVICE_COMMISSION_RATE * 100)}% para o profissional / 50% para o salão.
+                  </p>
                 </div>
               )}
             </div>
