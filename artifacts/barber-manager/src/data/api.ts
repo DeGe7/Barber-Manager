@@ -228,6 +228,9 @@ function translateJoinRequestError(message: string): Error {
     || normalized.includes('manual_commissions')
     || normalized.includes('primary_professional_missing_from_manual_commissions')
   ) {
+    if (normalized.includes('manual_commissions_must_equal_service_share')) {
+      return new Error('A soma das comissões dos profissionais deve corresponder a 50% do valor do serviço ou do uso do plano.');
+    }
     return new Error('Revise a atribuição manual: selecione profissionais ativos, sem repetição, e informe a comissão de cada um em reais.');
   }
   return new Error(message);
@@ -261,6 +264,9 @@ function mapAppointment(row: Row) {
     serviceId: row.service_id ? String(row.service_id) : undefined,
     planSubscriberId: row.plan_subscriber_id ? String(row.plan_subscriber_id) : undefined,
     planUsageValue: row.plan_subscriber_id ? Number(row.plan_usage_value ?? 0) : undefined,
+    serviceCommissionRateSnapshot: row.service_commission_rate_snapshot == null
+      ? undefined
+      : Number(row.service_commission_rate_snapshot),
     professionalCommissions: arrayValue<Row>(row.professional_commissions)
       .map(assignment => ({
         professionalId: String(assignment.professionalId ?? assignment.professional_id ?? ''),
