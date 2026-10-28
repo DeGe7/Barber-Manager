@@ -9,6 +9,48 @@ test.describe('atribuição de vendas no Controle Diário', () => {
     await loginAs(page, accounts.manager);
   });
 
+  test('registra atendimento sem nome sem criar cliente ou visita', async ({ page }) => {
+    await openModule(page, '/controle', 'Controle Diário');
+    const form = page.locator('form').filter({
+      has: page.getByRole('button', { name: /^Salvar Atendimento/ }),
+    });
+    await form.getByTestId('checkbox-anonymous-attendance').check();
+    await expect(form.getByTestId('input-attendance-client-name')).toHaveCount(0);
+    await expect(form.getByTestId('select-attendance-plan')).toBeDisabled();
+
+    const professional = form.getByTestId('select-attendance-professional');
+    const professionalId = await professional.locator('option').nth(1).getAttribute('value');
+    expect(professionalId).toBeTruthy();
+    await professional.selectOption(professionalId!);
+    await form.getByTestId('input-attendance-service-value').fill('50');
+
+    let clientCreates = 0;
+    page.on('request', request => {
+      if (
+        request.url().includes('/rest/v1/clients') &&
+        request.method() === 'POST'
+      ) clientCreates += 1;
+    });
+    const appointmentCreated = page.waitForResponse(response =>
+      response.url().includes('/rest/v1/appointments') &&
+      response.request().method() === 'POST' &&
+      response.ok(),
+    );
+    await form.getByRole('button', { name: /^Salvar Atendimento/ }).click();
+    const appointmentResponse = await appointmentCreated;
+    const appointment = await appointmentResponse.json() as {
+      client: string;
+      client_id: string | null;
+      client_phone: string | null;
+    };
+
+    expect(appointment.client).toBe('Atendimento sem identificação');
+    expect(appointment.client_id).toBeNull();
+    expect(appointment.client_phone).toBeNull();
+    expect(clientCreates).toBe(0);
+    await expect(page.getByRole('row').filter({ hasText: 'Atendimento sem identificação' })).toBeVisible();
+  });
+
   test('salva atribuições distintas, venda própria e serviço comum sem atribuição', async ({ page }) => {
     await openModule(page, '/controle', 'Controle Diário');
     const form = page.locator('form').filter({
