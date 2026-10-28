@@ -1027,7 +1027,7 @@ test.describe('CRUD dos módulos de negócio', () => {
   test('salva e recarrega configurações do estabelecimento', async ({ page }) => {
     const name = uniqueName('Barbearia E2E');
     await openModule(page, '/configuracoes', 'Configurações');
-    await page.getByPlaceholder('Ex: Barber Manager').fill(name);
+    await page.getByPlaceholder('Ex: Beauty Manager').fill(name);
     const settingsResponse = page.waitForResponse(response =>
       response.url().includes('/organization_settings') &&
       response.request().method() === 'POST' &&
@@ -1038,6 +1038,6 @@ test.describe('CRUD dos módulos de negócio', () => {
     await expect(page.getByText('Configurações salvas com sucesso.', { exact: true })).toBeVisible();
     await settleMutation(page);
     await page.reload();
-    await expect(page.getByPlaceholder('Ex: Barber Manager')).toHaveValue(name);
+    await expect(page.getByPlaceholder('Ex: Beauty Manager')).toHaveValue(name);
   });
 });
