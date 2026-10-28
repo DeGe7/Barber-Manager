@@ -105,8 +105,8 @@ export default function Perfil() {
   };
 
   return (
-    <div className="p-5 md:p-8 max-w-3xl mx-auto space-y-6">
-      <div className="flex items-center gap-4 border-b border-brand-border pb-6">
+    <div className="p-4 sm:p-5 md:p-8 max-w-3xl mx-auto space-y-5 md:space-y-6">
+      <div className="flex items-center gap-3 border-b border-brand-border pb-4 sm:gap-4 sm:pb-6">
         <div className="p-3 rounded-xl bg-brand-surface border border-brand-border text-brand-gold"><UserCircle className="w-6 h-6" /></div>
         <div>
           <h2 className="text-2xl font-bold">Meu Perfil</h2>
@@ -114,7 +114,7 @@ export default function Perfil() {
         </div>
       </div>
 
-      <section className="bg-brand-surface border border-brand-border rounded-2xl p-6 md:p-8">
+      <section className="bg-brand-surface border border-brand-border rounded-2xl p-4 sm:p-6 md:p-8">
         <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6">
           <div className="relative">
             <div className="w-32 h-32 rounded-full bg-brand-bg border-2 border-brand-gold/50 flex items-center justify-center overflow-hidden text-4xl font-bold text-brand-gold">
@@ -170,7 +170,7 @@ export default function Perfil() {
         </div>
       </section>
 
-      <section className="bg-brand-surface border border-brand-border rounded-2xl p-6 md:p-8">
+      <section className="bg-brand-surface border border-brand-border rounded-2xl p-4 sm:p-6 md:p-8">
         <div className="flex items-center gap-3 border-b border-brand-border/50 pb-4">
           <LockKeyhole className="w-5 h-5 text-brand-gold" />
           <div>
