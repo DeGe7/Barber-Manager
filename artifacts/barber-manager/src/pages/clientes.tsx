@@ -14,11 +14,13 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { formatDateKey, parseDateKey } from '@/data/date';
 import { normalizeClientPhone } from '@/data/client-phone';
+import { useRecentlyAddedIds } from '@/hooks/useRecentlyAddedIds';
 
 const TABS = ['Todos', 'Aniversariantes', 'Inativos', 'Origem / CAC'] as const;
 
 export default function Clientes() {
   const { clients, addClient, updateClient, removeClient, addVisit, removeVisit, isLoading } = useStore();
+  const recentlyAddedClientIds = useRecentlyAddedIds(clients, isLoading);
 
   const [activeTab, setActiveTab] = useState<typeof TABS[number]>('Todos');
   const [search, setSearch] = useState('');
@@ -111,11 +113,14 @@ export default function Clientes() {
   };
 
   return (
-    <div className="min-w-0 p-3 sm:p-5 md:p-8 space-y-6 max-w-7xl mx-auto">
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+    <div className="min-w-0 p-3 sm:p-5 md:p-8 space-y-5 md:space-y-6 max-w-7xl mx-auto">
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 md:gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-foreground">Clientes</h2>
-          <p className="text-sm text-muted-foreground mt-1">{clients.length} cadastrados • {bdaysCount} aniversários • {inativosCount} inativos</p>
+          <h2 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">Clientes</h2>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground sm:text-sm">
+            Busque por nome, e-mail ou WhatsApp e consulte o histórico de visitas.
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground sm:text-sm">{clients.length} cadastrados · {bdaysCount} aniversários · {inativosCount} inativos</p>
         </div>
         
         <Dialog open={isOpen} onOpenChange={setIsOpen}>
@@ -218,7 +223,7 @@ export default function Clientes() {
                             const isBday = c.birthday?.slice(5,7) === currentMonth;
 
                             return (
-                              <tr key={c.id} className="border-b border-brand-border/50 hover:bg-brand-bg/50 transition-colors">
+                              <tr key={c.id} className={`border-b border-brand-border/50 hover:bg-brand-bg/50 transition-colors ${recentlyAddedClientIds.has(c.id) ? 'bm-list-item-enter' : ''}`}>
                                 <td className="py-3 font-medium flex items-center gap-2">
                                   {c.name} {isBday && <Cake className="w-3 h-3 text-brand-gold" aria-label="Aniversário este mês" />}
                                 </td>
@@ -298,7 +303,7 @@ export default function Clientes() {
                         const tkm = c.visits.length ? total / c.visits.length : 0;
                         const isBday = c.birthday?.slice(5,7) === currentMonth;
                         return (
-                          <div data-testid={`mobile-client-card-${c.id}`} key={c.id} className="min-w-0 p-4 bg-brand-bg border border-brand-border rounded-xl">
+                          <div data-testid={`mobile-client-card-${c.id}`} key={c.id} className={`min-w-0 p-4 bg-brand-bg border border-brand-border rounded-xl ${recentlyAddedClientIds.has(c.id) ? 'bm-list-item-enter' : ''}`}>
                             <div className="flex justify-between items-start gap-2 mb-2">
                               <div className="min-w-0">
                                 <p data-testid={`mobile-client-name-${c.id}`} className="min-w-0 break-words [overflow-wrap:anywhere] font-bold text-sm flex items-center gap-1">
@@ -381,7 +386,7 @@ export default function Clientes() {
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {aniversariantes.map(c => (
-                      <div data-testid={`birthday-client-card-${c.id}`} key={c.id} className="p-4 border border-brand-border rounded-xl bg-brand-bg flex flex-col gap-3">
+                      <div data-testid={`birthday-client-card-${c.id}`} key={c.id} className={`p-4 border border-brand-border rounded-xl bg-brand-bg flex flex-col gap-3 ${recentlyAddedClientIds.has(c.id) ? 'bm-list-item-enter' : ''}`}>
                         <div className="flex justify-between items-start">
                           <div className="min-w-0">
                             <p data-testid={`birthday-client-name-${c.id}`} className="min-w-0 break-words [overflow-wrap:anywhere] font-bold">{c.name}</p>
@@ -420,7 +425,7 @@ export default function Clientes() {
                         </thead>
                         <tbody>
                           {inativos.sort((a,b) => b.daysSince - a.daysSince).map(c => (
-                            <tr key={c.id} className="border-b border-brand-border/50 hover:bg-brand-bg/50 transition-colors">
+                            <tr key={c.id} className={`border-b border-brand-border/50 hover:bg-brand-bg/50 transition-colors ${recentlyAddedClientIds.has(c.id) ? 'bm-list-item-enter' : ''}`}>
                               <td className="py-3 font-medium">{c.name}</td>
                               <td className="py-3">{c.lastV?.split('-').reverse().join('/')}</td>
                               <td className="py-3 text-destructive font-bold">{c.daysSince} dias</td>
@@ -437,7 +442,7 @@ export default function Clientes() {
                     {/* Mobile cards */}
                     <div className="md:hidden space-y-3">
                       {inativos.sort((a,b) => b.daysSince - a.daysSince).map(c => (
-                         <div data-testid={`inactive-client-card-${c.id}`} key={c.id} className="p-4 bg-brand-bg border border-brand-border rounded-xl flex justify-between items-center gap-2">
+                         <div data-testid={`inactive-client-card-${c.id}`} key={c.id} className={`p-4 bg-brand-bg border border-brand-border rounded-xl flex justify-between items-center gap-2 ${recentlyAddedClientIds.has(c.id) ? 'bm-list-item-enter' : ''}`}>
                            <div className="min-w-0">
                              <p data-testid={`inactive-client-name-${c.id}`} className="min-w-0 break-words [overflow-wrap:anywhere] font-bold text-sm">{c.name}</p>
                             <p className="text-xs text-muted-foreground mt-0.5">Última: {c.lastV?.split('-').reverse().join('/')}</p>
