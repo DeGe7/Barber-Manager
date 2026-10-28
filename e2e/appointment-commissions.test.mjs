@@ -2,10 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   appointmentCommissionForProfessional,
+  appointmentProductsChargeTotal,
+  automaticProsthesisProductId,
   clampManualCommissionAmount,
   manualCommissionAmountLimit,
   manualCommissionAllocationMatches,
   professionalCommissionPool,
+  prosthesisCommissionForProfessional,
+  prosthesisProductCost,
 } from '../artifacts/barber-manager/src/data/appointment-commissions.ts';
 import { planValuePerUse, subscriberServiceUsesRemaining } from '../artifacts/barber-manager/src/data/plan-usage.ts';
 
@@ -15,6 +19,53 @@ const appointment = (overrides = {}) => ({
   service: 'Prótese Capilar',
   value: 1000,
   ...overrides,
+});
+
+test('prosthesis used for an application is not charged twice to the client', () => {
+  assert.equal(
+    appointmentProductsChargeTotal(
+      [
+        { productId: 'prosthesis', quantity: 1 },
+        { productId: 'styling-product', quantity: 2 },
+      ],
+      [
+        { id: 'prosthesis', price: 900, isProsthesisCapillary: true },
+        { id: 'styling-product', price: 25, isProsthesisCapillary: false },
+      ],
+      true,
+    ),
+    50,
+  );
+});
+
+test('automatically selects the active marked product named Prótese Capilar', () => {
+  assert.equal(
+    automaticProsthesisProductId([
+      { id: 'other', name: 'Cera', isActive: true, isProsthesisCapillary: false },
+      { id: 'prosthesis', name: 'Prótese Capilar', isActive: true, isProsthesisCapillary: true },
+    ]),
+    'prosthesis',
+  );
+});
+
+test('uses the sole active marked prosthesis product when its name differs', () => {
+  assert.equal(
+    automaticProsthesisProductId([
+      { id: 'prosthesis', name: 'Modelo Premium', isActive: true, isProsthesisCapillary: true },
+      { id: 'inactive', name: 'Prótese Capilar', isActive: false, isProsthesisCapillary: true },
+    ]),
+    'prosthesis',
+  );
+});
+
+test('does not guess when multiple marked products could be consumed', () => {
+  assert.equal(
+    automaticProsthesisProductId([
+      { id: 'one', name: 'Prótese Premium', isActive: true, isProsthesisCapillary: true },
+      { id: 'two', name: 'Prótese Básica', isActive: true, isProsthesisCapillary: true },
+    ]),
+    null,
+  );
 });
 
 test('new attended service gives the executor half of the gross service value', () => {
@@ -153,6 +204,51 @@ test('multiple professionals receive only their manually assigned commission amo
   assert.equal(appointmentCommissionForProfessional(sharedAppointment, 'executor', rateFor), 18.5);
   assert.equal(appointmentCommissionForProfessional(sharedAppointment, 'second', rateFor), 31.5);
   assert.equal(appointmentCommissionForProfessional(sharedAppointment, 'unassigned', rateFor), 0);
+});
+
+test('prosthesis application pays a fixed R$140 except Marcos, who receives half the net profit', () => {
+  assert.equal(prosthesisCommissionForProfessional(800, 300, 'João Silva'), 140);
+  assert.equal(prosthesisCommissionForProfessional(800, 300, 'Marcos Macedo'), 250);
+  assert.equal(prosthesisCommissionForProfessional(200, 300, 'Marcos Macedo'), 0);
+
+  const application = appointment({
+    value: 800,
+    prosthesisCostSnapshot: 300,
+    prosthesisCommissionRuleSnapshot: true,
+  });
+  assert.equal(
+    appointmentCommissionForProfessional(application, 'executor', rateFor, 'Marcos Macedo'),
+    250,
+  );
+  assert.equal(
+    appointmentCommissionForProfessional(application, 'executor', rateFor, 'João Silva'),
+    140,
+  );
+});
+
+test('Marcos profit uses only consumed inventory items explicitly marked as capillary prostheses', () => {
+  assert.equal(
+    prosthesisProductCost(
+      [
+        { productId: 'hair-piece', quantity: 1 },
+        { productId: 'renamed-item', quantity: 2 },
+        { productId: 'unmarked-prosthesis', quantity: 3 },
+      ],
+      [
+        { id: 'hair-piece', isProsthesisCapillary: true, cost: 300 },
+        { id: 'renamed-item', isProsthesisCapillary: true, cost: 20 },
+        { id: 'unmarked-prosthesis', isProsthesisCapillary: false, cost: 45 },
+      ],
+    ),
+    340,
+  );
+  assert.equal(
+    prosthesisProductCost(
+      [{ productId: 'renamed-item', quantity: 2 }],
+      [{ id: 'renamed-item', name: 'Produto renomeado', category: 'Acessórios', isProsthesisCapillary: true, cost: 20 }],
+    ),
+    40,
+  );
 });
 
 test('plan cost is divided across every included use and cancelled visits do not consume quota', () => {

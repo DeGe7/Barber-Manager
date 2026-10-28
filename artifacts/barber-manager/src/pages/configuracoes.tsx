@@ -335,7 +335,7 @@ export default function Configuracoes() {
   };
 
   if (isLoading) return (
-    <div className="p-5 md:p-8 max-w-4xl mx-auto space-y-8">
+    <div className="p-4 sm:p-5 md:p-8 max-w-4xl mx-auto space-y-6 md:space-y-8">
       <Skeleton className="h-16 w-full rounded-2xl" />
       <Skeleton className="h-64 w-full rounded-2xl" />
       <Skeleton className="h-48 w-full rounded-2xl" />
@@ -343,8 +343,8 @@ export default function Configuracoes() {
   );
 
   return (
-    <div className="p-5 md:p-8 max-w-4xl mx-auto space-y-8">
-      <div className="sticky top-0 z-10 -mx-5 md:-mx-8 px-5 md:px-8 border-b border-brand-border pb-5 bg-brand-bg/95 backdrop-blur-md">
+    <div className="p-4 sm:p-5 md:p-8 max-w-4xl mx-auto space-y-6 md:space-y-8">
+      <div className="z-10 -mx-4 sm:-mx-5 md:sticky md:top-0 md:-mx-8 px-4 sm:px-5 md:px-8 border-b border-brand-border pb-4 md:pb-5 bg-brand-bg/95 backdrop-blur-md">
         <div className="flex items-center gap-4">
         <div className="p-3 bg-brand-surface border border-brand-border rounded-xl text-brand-gold shadow-sm">
           <Settings className="w-6 h-6" />
@@ -354,7 +354,7 @@ export default function Configuracoes() {
           <p className="text-sm text-muted-foreground mt-1">Gerencie os dados base da sua barbearia</p>
         </div>
         </div>
-        <nav className="mt-5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-8 gap-2 pb-1" aria-label="Seções de configurações">
+        <nav className="mt-4 grid grid-cols-2 gap-2 pb-1 sm:mt-5 sm:grid-cols-3 lg:grid-cols-8" aria-label="Seções de configurações">
           {[
             ['estabelecimento', 'Dados do Estabelecimento'],
             ['equipe', 'Equipe e Comissões'],
@@ -373,7 +373,7 @@ export default function Configuracoes() {
       </div>
 
       {showSection('dev-admin') && (profile?.role === 'gestor' || profile?.role === 'dev-admin') && (
-        <section className="scroll-mt-24 rounded-2xl border border-brand-border bg-brand-surface p-6 shadow-sm md:p-8">
+        <section className="scroll-mt-24 rounded-2xl border border-brand-border bg-brand-surface p-4 sm:p-6 shadow-sm md:p-8">
           <div className="mb-6 flex items-center gap-3 border-b border-brand-border/50 pb-4">
             <UserPlus className="h-5 w-5 text-brand-gold" />
             <div>
@@ -470,7 +470,7 @@ export default function Configuracoes() {
               value={formData.name}
               onChange={(e) => setFormData(p => ({ ...p, name: e.target.value }))}
               className="w-full bg-brand-bg border border-brand-border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-gold focus:border-brand-gold text-foreground placeholder:text-muted-foreground transition-all"
-              placeholder="Ex: Barber Manager"
+              placeholder="Ex: Beauty Manager"
             />
           </div>
           

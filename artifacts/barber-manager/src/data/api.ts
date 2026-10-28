@@ -233,6 +233,9 @@ function translateJoinRequestError(message: string): Error {
     }
     return new Error('Revise a atribuição manual: selecione profissionais ativos, sem repetição, e informe a comissão de cada um em reais.');
   }
+  if (normalized.includes('prosthesis_commission_amount_mismatch')) {
+    return new Error('A comissão da aplicação de prótese foi alterada. Confira o valor fixo ou o cálculo de lucro do Marcos Macedo.');
+  }
   return new Error(message);
 }
 
@@ -267,6 +270,10 @@ function mapAppointment(row: Row) {
     serviceCommissionRateSnapshot: row.service_commission_rate_snapshot == null
       ? undefined
       : Number(row.service_commission_rate_snapshot),
+    prosthesisCostSnapshot: row.prosthesis_cost_snapshot == null
+      ? undefined
+      : Number(row.prosthesis_cost_snapshot),
+    prosthesisCommissionRuleSnapshot: Boolean(row.prosthesis_commission_rule_snapshot),
     professionalCommissions: arrayValue<Row>(row.professional_commissions)
       .map(assignment => ({
         professionalId: String(assignment.professionalId ?? assignment.professional_id ?? ''),
@@ -326,6 +333,7 @@ function mapProduct(row: Row) {
     id: String(row.id),
     name: String(row.name ?? ''),
     category: String(row.category ?? ''),
+    isProsthesisCapillary: Boolean(row.is_prosthesis_capillary),
     price: Number(row.price ?? 0),
     cost: Number(row.cost ?? 0),
     stock: Number(row.stock ?? 0),
@@ -538,6 +546,14 @@ async function insertRow(table: string, row: Row): Promise<Row> {
   const { data, error } = await client().from(table).insert(defined(row)).select('*').single();
   if (error) throw new Error(`Não foi possível salvar em ${table}: ${error.message}`);
   return data as Row;
+}
+
+async function insertRowWithoutRepresentation(table: string, row: Row): Promise<Row> {
+  await organizationId();
+  const values = defined(row);
+  const { error } = await client().from(table).insert(values);
+  if (error) throw new Error(`Não foi possível salvar em ${table}: ${error.message}`);
+  return values;
 }
 
 function translatePlanAttendanceError(error: unknown): Error {
@@ -1121,10 +1137,12 @@ export const api = {
     create: async (body: Row) => mapProduct(await insertRow('products', {
       id: body.id, name: body.name, category: body.category, price: body.price, cost: body.cost,
       stock: body.stock, min_stock: body.minStock, is_active: body.isActive,
+      is_prosthesis_capillary: body.isProsthesisCapillary,
     })),
     update: async (id: string, body: Row) => mapProduct(await updateRow('products', id, {
       name: body.name, category: body.category, price: body.price, cost: body.cost,
       stock: body.stock, min_stock: body.minStock, is_active: body.isActive,
+      is_prosthesis_capillary: body.isProsthesisCapillary,
     })),
     adjustStock: async (id: string, delta: number) => {
       await organizationId();
@@ -1139,10 +1157,16 @@ export const api = {
   },
   expenses: {
     list: async () => (await listRows('expenses', 'date')).map(mapExpense),
-    create: async (body: Row) => mapExpense(await insertRow('expenses', {
-      id: body.id, date: body.date, description: body.description, amount: body.amount, category: body.category,
-      payment_method: body.paymentMethod,
-    })),
+    create: async (body: Row, options: { returnRepresentation?: boolean } = {}) => {
+      const values = {
+        id: body.id, date: body.date, description: body.description, amount: body.amount, category: body.category,
+        payment_method: body.paymentMethod,
+      };
+      const saved = options.returnRepresentation === false
+        ? await insertRowWithoutRepresentation('expenses', values)
+        : await insertRow('expenses', values);
+      return mapExpense(saved);
+    },
     update: async (id: string, body: Row) => mapExpense(await updateRow('expenses', id, {
       date: body.date, description: body.description, amount: body.amount, category: body.category,
       payment_method: body.paymentMethod,

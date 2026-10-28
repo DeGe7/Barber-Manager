@@ -11,7 +11,6 @@ import {
   Briefcase,
   LogIn,
   ArrowRight,
-  CheckCircle2,
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Link } from 'wouter';
@@ -25,6 +24,7 @@ import {
 } from 'recharts';
 import { StatsCard } from '@/components/StatsCard';
 import { formatDateKey, parseDateKey } from '@/data/date';
+import { subscriptionReceiptDate } from '@/data/subscription-payment';
 
 const PAYMENT_METHODS: PayMethod[] = ['debito', 'credito', 'pix', 'dinheiro'];
 const PAYMENT_CARD_STYLES: Record<PayMethod, string> = {
@@ -41,30 +41,46 @@ const PAYMENT_VALUE_STYLES: Record<PayMethod, string> = {
 };
 
 export default function Dashboard() {
-  const { appointments, professionals, products, prothesisSales, mentoriaSessions, expenses, isLoading } = useStore();
+  const {
+    appointments, professionals, products, prothesisSales, mentoriaSessions, expenses,
+    plans, subscribers, subscriptionPayments, isLoading,
+  } = useStore();
   const { profile, viewAsProfile } = useAuth();
   const activeProfile = viewAsProfile ?? profile;
   const isReceptionist = activeProfile?.role === 'recepcao';
+  const isPersonalFinanceRole = ['barbeiro', 'manicure', 'vendedor'].includes(activeProfile?.role ?? '');
   const ownProfile = Boolean(activeProfile?.professionalId && activeProfile.role !== 'gestor' && activeProfile.role !== 'dev-admin');
-  const canViewFinancialSummary = canAccess(activeProfile?.role ?? null, '/financeiro', activeProfile?.permissions);
-  const [ownPeriod, setOwnPeriod] = useState<'semanal' | 'mensal'>('semanal');
+  const canViewFinancialSummary = !ownProfile && !isPersonalFinanceRole &&
+    canAccess(activeProfile?.role ?? null, '/financeiro', activeProfile?.permissions);
+  const canOpenControl = canAccess(activeProfile?.role ?? null, '/controle', activeProfile?.permissions);
+  const canOpenAgenda = canAccess(activeProfile?.role ?? null, '/agenda', activeProfile?.permissions);
   const [revenuePeriod, setRevenuePeriod] = useState<'diaria' | 'semanal' | 'mensal'>('diaria');
 
   const today = formatDateKey();
-  const periodStart = new Date();
-  periodStart.setHours(0, 0, 0, 0);
-  periodStart.setDate(periodStart.getDate() - (ownPeriod === 'semanal' ? 6 : 29));
   const todayAppointments = appointments.filter(a => {
-    if (!ownProfile) return a.date === today;
-    const date = new Date(`${a.date}T12:00:00`);
-    return a.professionalId === activeProfile?.professionalId && date >= periodStart;
+    if (isPersonalFinanceRole && !activeProfile?.professionalId) return false;
+    return a.date === today && (!ownProfile || a.professionalId === activeProfile?.professionalId);
   });
-  const completed = todayAppointments.filter(a => a.status === 'completed').length;
+  const completed = todayAppointments.filter(a =>
+    a.status === 'completed' ||
+    (Boolean(a.attendanceRecordedAt) && a.status !== 'cancelled' && a.status !== 'no_show')
+  ).length;
   const checkedIn = todayAppointments.filter(a => a.status === 'checked_in').length;
-  const awaiting = todayAppointments.filter(a => a.status === 'pending' || a.status === 'confirmed').length;
+  const awaiting = todayAppointments.filter(a =>
+    (a.status === 'pending' || a.status === 'confirmed') && !a.attendanceRecordedAt
+  ).length;
+  const paidSubscriptionReceipts = subscriptionPayments.flatMap(payment => {
+    const receiptDate = subscriptionReceiptDate(payment);
+    return receiptDate ? [{ ...payment, receiptDate }] : [];
+  });
+  const todaySubscriptionRevenue = ownProfile || isPersonalFinanceRole
+    ? 0
+    : paidSubscriptionReceipts
+      .filter(payment => payment.receiptDate === today)
+      .reduce((sum, payment) => sum + payment.amount, 0);
   const revenue = todayAppointments
     .filter(a => a.status === 'completed' || a.status === 'confirmed')
-    .reduce((sum, a) => sum + a.value + (a.tip || 0), 0);
+    .reduce((sum, a) => sum + a.value + (a.tip || 0), 0) + todaySubscriptionRevenue;
 
   const profRevenue: Record<string, number> = {};
   todayAppointments.filter(a => a.status === 'completed' || a.status === 'confirmed').forEach(a => {
@@ -89,6 +105,11 @@ export default function Dashboard() {
     const value = parseDateKey(date);
     return value >= revenuePeriodStart && value <= revenuePeriodEnd;
   };
+  const subscriptionReceiptsInPeriod = paidSubscriptionReceipts
+    .filter(payment => paymentPeriodMatches(payment.receiptDate))
+    .sort((a, b) => b.receiptDate.localeCompare(a.receiptDate));
+  const subscriptionRevenueInPeriod = subscriptionReceiptsInPeriod
+    .reduce((sum, payment) => sum + payment.amount, 0);
   const revenueAppointments = appointments.filter(a => {
     if (a.status !== 'completed' && a.status !== 'confirmed') return false;
     const date = parseDateKey(a.date);
@@ -124,6 +145,11 @@ export default function Dashboard() {
       ? (sale.value / sale.installments) * sale.installmentsPaid
       : 0;
     if (sale.payMethod1 in paymentTotals) paymentTotals[sale.payMethod1] += paidAmount;
+  });
+  subscriptionReceiptsInPeriod.forEach(payment => {
+    if (payment.paymentMethod && payment.paymentMethod in paymentTotals) {
+      paymentTotals[payment.paymentMethod] += payment.amount;
+    }
   });
   expenses.filter(expense => paymentPeriodMatches(expense.date)).forEach(expense => {
     if (expense.paymentMethod && expense.paymentMethod in expenseTotals) {
@@ -188,20 +214,33 @@ export default function Dashboard() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-5 md:space-y-8 md:p-8">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-xl font-bold text-foreground sm:text-2xl">Visão geral</h2>
           <p className="mt-1 text-sm text-muted-foreground">{ownProfile ? 'Acompanhe apenas os seus resultados.' : 'Acompanhe a operação de hoje.'}</p>
         </div>
-        {ownProfile && (
-          <select value={ownPeriod} onChange={e => setOwnPeriod(e.target.value as typeof ownPeriod)} className="min-h-11 bg-brand-surface border border-brand-border rounded-lg px-3 py-2 text-sm" aria-label="Período do dashboard">
-            <option value="semanal">Últimos 7 dias</option>
-            <option value="mensal">Últimos 30 dias</option>
-          </select>
+        {(canOpenControl || canOpenAgenda) && (
+          <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
+            {canOpenControl && (
+              <Link
+                href="/controle"
+                data-testid="dashboard-quick-attendance"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-brand-gold px-3 py-2 text-center text-xs font-bold text-brand-bg transition-colors hover:bg-brand-gold/90 sm:px-4 sm:text-sm"
+              >
+                Registrar atendimento <ArrowRight className="h-4 w-4 shrink-0" />
+              </Link>
+            )}
+            {canOpenAgenda && (
+              <Link
+                href="/agenda"
+                data-testid="dashboard-quick-agenda"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-brand-border bg-brand-surface px-3 py-2 text-center text-xs font-semibold text-foreground transition-colors hover:border-brand-gold/50 sm:px-4 sm:text-sm"
+              >
+                Abrir agenda <CalendarCheck className="h-4 w-4 shrink-0 text-brand-gold" />
+              </Link>
+            )}
+          </div>
         )}
-        <Link href="/agenda" className="hidden sm:inline-flex items-center gap-2 rounded-lg bg-brand-gold px-4 py-2 text-sm font-bold text-brand-bg transition-colors hover:bg-brand-gold/90">
-          Agenda <ArrowRight className="h-4 w-4" />
-        </Link>
       </div>
 
       {isLoading ? (
@@ -265,6 +304,49 @@ export default function Dashboard() {
               </div>
             ))}
           </div>
+          <section data-testid="dashboard-plan-receipts" className="mt-4 rounded-xl border border-brand-border bg-brand-bg p-3 sm:p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h4 className="text-sm font-semibold text-foreground">Mensalidades de planos recebidas</h4>
+                <p className="mt-1 text-xs text-muted-foreground">Somente pagamentos confirmados · {revenuePeriodLabels[revenuePeriod]}</p>
+              </div>
+              <strong className="text-sm text-success">{brl(subscriptionRevenueInPeriod)}</strong>
+            </div>
+            {subscriptionReceiptsInPeriod.length === 0 ? (
+              <p className="mt-3 text-xs text-muted-foreground">Nenhuma mensalidade paga neste período.</p>
+            ) : (
+              <div className="mt-3 divide-y divide-brand-border/70">
+                {subscriptionReceiptsInPeriod.slice(0, 3).map(payment => {
+                  const subscriber = subscribers.find(item => item.id === payment.subscriberId);
+                  const plan = plans.find(item => item.id === subscriber?.planId);
+                  return (
+                    <div
+                      key={payment.id}
+                      data-testid="dashboard-plan-receipt"
+                      className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2 first:pt-0 last:pb-0"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-foreground">
+                          {subscriber?.name ?? 'Assinante removido'}
+                          <span className="font-normal text-muted-foreground"> · {plan?.name ?? 'Plano'}</span>
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {parseDateKey(payment.receiptDate).toLocaleDateString('pt-BR')}
+                          {payment.paymentMethod ? ` · ${PAY_LABELS[payment.paymentMethod]}` : ''}
+                        </p>
+                      </div>
+                      <strong className="text-sm text-success">{brl(payment.amount)}</strong>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {subscriptionReceiptsInPeriod.length > 3 && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Mostrando 3 de {subscriptionReceiptsInPeriod.length} recebimentos.
+              </p>
+            )}
+          </section>
           {expensesWithoutPaymentMethod > 0 && (
             <p className="mt-3 text-xs text-warning">
               {brl(expensesWithoutPaymentMethod)} em despesas antigas sem forma de pagamento.
@@ -287,35 +369,6 @@ export default function Dashboard() {
           <ArrowRight className="mt-1 h-5 w-5 shrink-0 text-destructive" />
         </Link>
       )}
-
-      <section className="md:hidden rounded-2xl border border-brand-border bg-brand-surface p-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h3 className="font-bold text-foreground">Operação de hoje</h3>
-            <p className="mt-1 text-xs text-muted-foreground">Ações rápidas para o atendimento.</p>
-          </div>
-          <Link href="/agenda" className="rounded-lg bg-brand-gold px-3 py-2 text-xs font-bold text-brand-bg">
-            Abrir agenda
-          </Link>
-        </div>
-        <div className="mt-4 grid grid-cols-3 divide-x divide-brand-border text-center">
-          <div className="px-2">
-            <LogIn className="mx-auto h-4 w-4 text-warning" />
-            <p className="mt-1 text-lg font-bold">{checkedIn}</p>
-            <p className="text-[11px] text-muted-foreground">Em atendimento</p>
-          </div>
-          <div className="px-2">
-            <Clock className="mx-auto h-4 w-4 text-brand-gold" />
-            <p className="mt-1 text-lg font-bold">{awaiting}</p>
-            <p className="text-[11px] text-muted-foreground">Aguardando</p>
-          </div>
-          <div className="px-2">
-            <CheckCircle2 className="mx-auto h-4 w-4 text-success" />
-            <p className="mt-1 text-lg font-bold">{completed}</p>
-            <p className="text-[11px] text-muted-foreground">Finalizados</p>
-          </div>
-        </div>
-      </section>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
@@ -355,8 +408,8 @@ export default function Dashboard() {
                           <td className="py-3">{a.service}</td>
                           {!isReceptionist && <td className="py-3">{brl(a.value + (a.tip || 0))}</td>}
                           <td className="py-3">
-                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_CLASS[a.status] || STATUS_CLASS.cancelled}`}>
-                              {STATUS_LABEL[a.status] || a.status}
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_CLASS[a.attendanceRecordedAt && a.status === 'confirmed' ? 'completed' : a.status] || STATUS_CLASS.cancelled}`}>
+                              {a.attendanceRecordedAt && a.status === 'confirmed' ? 'Concluído' : STATUS_LABEL[a.status] || a.status}
                             </span>
                           </td>
                         </tr>

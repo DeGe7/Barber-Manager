@@ -4,17 +4,32 @@ import { toast } from 'sonner';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Package, Plus, Trash2, Edit2, Check, X, AlertTriangle, ArrowUp, CheckCircle2 } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { useRecentlyAddedIds } from '@/hooks/useRecentlyAddedIds';
 
 export default function Produtos() {
   const { products, addProduct, updateProduct, removeProduct, restock, isLoading } = useStore();
+  const recentlyAddedProductIds = useRecentlyAddedIds(products, isLoading);
 
   const totalItems = products.length;
   const totalValue = products.reduce((s, p) => s + (p.cost * p.stock), 0);
   const okItems = products.filter(p => productStatus(p) === 'ok').length;
   const alertItems = products.filter(p => productStatus(p) !== 'ok').length;
+  const prosthesisCount = products.filter(p => p.isProsthesisCapillary).length;
 
   const [isAdding, setIsAdding] = useState(false);
-  const [newP, setNewP] = useState({ name: '', category: '', price: '', cost: '', stock: '', minStock: '' });
+  const [showOnlyProsthesis, setShowOnlyProsthesis] = useState(false);
+  const visibleProducts = showOnlyProsthesis
+    ? products.filter(p => p.isProsthesisCapillary)
+    : products;
+  const [newP, setNewP] = useState({
+    name: '',
+    category: '',
+    price: '',
+    cost: '',
+    stock: '',
+    minStock: '',
+    isProsthesisCapillary: false,
+  });
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,11 +44,19 @@ export default function Produtos() {
     }
     if (!await addProduct({
       name: newP.name, category: newP.category || 'Geral', price, cost,
-      stock, minStock, isActive: true
+      stock, minStock, isActive: true, isProsthesisCapillary: newP.isProsthesisCapillary,
     })) return;
     toast.success('Produto adicionado');
     setIsAdding(false);
-    setNewP({ name: '', category: '', price: '', cost: '', stock: '', minStock: '' });
+    setNewP({
+      name: '',
+      category: '',
+      price: '',
+      cost: '',
+      stock: '',
+      minStock: '',
+      isProsthesisCapillary: false,
+    });
   };
 
   const [editingId, setEditingId] = useState<string|null>(null);
@@ -48,7 +71,14 @@ export default function Produtos() {
       toast.error('Informe valores válidos e não negativos');
       return;
     }
-    if (!await updateProduct(editingId!, { name: editForm.name, category: editForm.category, price, cost, minStock })) return;
+    if (!await updateProduct(editingId!, {
+      name: editForm.name,
+      category: editForm.category,
+      price,
+      cost,
+      minStock,
+      isProsthesisCapillary: Boolean(editForm.isProsthesisCapillary),
+    })) return;
     toast.success('Salvo');
     setEditingId(null);
   };
@@ -60,9 +90,12 @@ export default function Produtos() {
   };
 
   return (
-    <div className="min-w-0 p-3 sm:p-5 md:p-8 space-y-6 max-w-7xl mx-auto">
+    <div className="min-w-0 p-4 sm:p-5 md:p-8 space-y-5 md:space-y-6 max-w-7xl mx-auto">
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <h2 className="text-2xl font-bold text-foreground">Produtos & Estoque</h2>
+        <div>
+          <h2 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">Produtos & Estoque</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Acompanhe níveis e reponha itens com rapidez.</p>
+        </div>
         {!isAdding && <button onClick={() => setIsAdding(true)} className="min-h-11 w-full md:w-auto justify-center bg-brand-gold text-brand-bg px-4 py-2 rounded-lg text-sm font-bold hover:bg-brand-gold/90 flex items-center gap-2 transition-all"><Plus className="w-4 h-4"/> Adicionar Produto</button>}
       </div>
 
@@ -86,14 +119,23 @@ export default function Produtos() {
       </div>
 
       {isAdding && (
-        <div className="bg-brand-bg border border-brand-gold p-4 rounded-xl shadow-[0_0_15px_rgba(201,168,76,0.1)]">
-          <form onSubmit={handleAdd} className="grid grid-cols-1 md:grid-cols-7 gap-4 items-end [&_input]:min-h-11">
+        <div className="bg-brand-bg border border-brand-gold p-4 sm:p-5 rounded-xl shadow-[0_0_15px_rgba(201,168,76,0.1)]">
+          <form onSubmit={handleAdd} className="grid grid-cols-1 md:grid-cols-7 gap-4 items-end [&_input:not([type=checkbox])]:min-h-11">
             <div className="md:col-span-2"><label className="text-[10px] uppercase text-muted-foreground">Nome</label><input required type="text" value={newP.name} onChange={e=>setNewP({...newP,name:e.target.value})} className="w-full bg-brand-surface border border-brand-border rounded px-3 py-2 text-sm outline-none" autoFocus/></div>
             <div><label className="text-[10px] uppercase text-muted-foreground">Categoria</label><input type="text" value={newP.category} onChange={e=>setNewP({...newP,category:e.target.value})} className="w-full bg-brand-surface border border-brand-border rounded px-3 py-2 text-sm outline-none" /></div>
             <div><label className="text-[10px] uppercase text-muted-foreground">Preço Venda (R$)</label><input required type="number" step="0.01" value={newP.price} onChange={e=>setNewP({...newP,price:e.target.value})} className="w-full bg-brand-surface border border-brand-border rounded px-3 py-2 text-sm outline-none" /></div>
             <div><label className="text-[10px] uppercase text-muted-foreground">Custo (R$)</label><input required type="number" step="0.01" value={newP.cost} onChange={e=>setNewP({...newP,cost:e.target.value})} className="w-full bg-brand-surface border border-brand-border rounded px-3 py-2 text-sm outline-none" /></div>
             <div><label className="text-[10px] uppercase text-muted-foreground">Estoque Inicial</label><input type="number" value={newP.stock} onChange={e=>setNewP({...newP,stock:e.target.value})} className="w-full bg-brand-surface border border-brand-border rounded px-3 py-2 text-sm outline-none" /></div>
             <div><label className="text-[10px] uppercase text-muted-foreground">Estoque Min.</label><input type="number" value={newP.minStock} onChange={e=>setNewP({...newP,minStock:e.target.value})} className="w-full bg-brand-surface border border-brand-border rounded px-3 py-2 text-sm outline-none" /></div>
+            <label className="md:col-span-2 flex min-h-11 items-center gap-2 text-sm text-foreground">
+              <input
+                type="checkbox"
+                checked={newP.isProsthesisCapillary}
+                onChange={e => setNewP({ ...newP, isProsthesisCapillary: e.target.checked })}
+                className="h-4 w-4 accent-brand-gold"
+              />
+              Custo de prótese capilar
+            </label>
             <div className="md:col-span-7 flex flex-col-reverse sm:flex-row justify-end gap-2 mt-2">
               <button type="button" onClick={()=>setIsAdding(false)} className="min-h-11 px-4 py-2 text-sm hover:bg-brand-surface rounded">Cancelar</button>
               <button type="submit" className="min-h-11 bg-brand-gold text-brand-bg px-6 py-2 rounded text-sm font-bold">Salvar Produto</button>
@@ -107,20 +149,75 @@ export default function Produtos() {
           <div className="text-center py-16 text-muted-foreground"><Package className="w-12 h-12 mx-auto mb-4 opacity-30"/><p>Nenhum produto</p></div>
         ) : (
           <>
+            <div className="mb-4 flex flex-wrap items-center gap-2" role="group" aria-label="Filtrar produtos">
+              <button
+                type="button"
+                data-testid="filter-all-products"
+                aria-pressed={!showOnlyProsthesis}
+                onClick={() => setShowOnlyProsthesis(false)}
+                className={`min-h-11 rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
+                  !showOnlyProsthesis
+                    ? 'border-brand-gold bg-brand-gold/10 text-brand-gold'
+                    : 'border-brand-border text-muted-foreground hover:bg-brand-bg'
+                }`}
+              >
+                Todos os produtos ({totalItems})
+              </button>
+              <button
+                type="button"
+                data-testid="filter-prosthesis-products"
+                aria-pressed={showOnlyProsthesis}
+                onClick={() => setShowOnlyProsthesis(true)}
+                className={`min-h-11 rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
+                  showOnlyProsthesis
+                    ? 'border-brand-gold bg-brand-gold/10 text-brand-gold'
+                    : 'border-brand-border text-muted-foreground hover:bg-brand-bg'
+                }`}
+              >
+                Próteses capilares ({prosthesisCount})
+              </button>
+            </div>
+            {visibleProducts.length === 0 ? (
+              <div className="py-12 text-center text-muted-foreground">
+                <Package className="mx-auto mb-3 h-10 w-10 opacity-30" />
+                <p>Nenhum produto marcado como prótese capilar.</p>
+                <button
+                  type="button"
+                  onClick={() => setShowOnlyProsthesis(false)}
+                  className="mt-3 min-h-11 rounded-lg px-4 py-2 text-sm font-medium text-brand-gold hover:bg-brand-bg"
+                >
+                  Mostrar todos os produtos
+                </button>
+              </div>
+            ) : (
+              <>
             {/* Desktop table */}
             <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-sm text-left">
-                <thead><tr className="border-b border-brand-border text-muted-foreground"><th className="pb-3">Produto</th><th className="pb-3">Categoria</th><th className="pb-3">Venda</th><th className="pb-3">Custo</th><th className="pb-3">Margem</th><th className="pb-3">Estoque</th><th className="pb-3">Reposição</th><th className="pb-3 text-right">Ações</th></tr></thead>
+                <thead><tr className="border-b border-brand-border text-muted-foreground"><th className="pb-3">Produto</th><th className="pb-3">Categoria</th><th className="pb-3">Prótese capilar</th><th className="pb-3">Venda</th><th className="pb-3">Custo</th><th className="pb-3">Margem</th><th className="pb-3">Estoque</th><th className="pb-3">Reposição</th><th className="pb-3 text-right">Ações</th></tr></thead>
                 <tbody>
-                  {products.map(p => {
+                  {visibleProducts.map(p => {
                     const isEd = editingId === p.id;
                     const st = productStatus(p);
                     const stClass = st === 'critical' ? 'text-destructive bg-destructive/10' : st === 'low' ? 'text-warning bg-warning/10' : 'text-success bg-success/10';
                      const margem = p.price > 0 ? ((p.price - p.cost) / p.price) * 100 : null;
                     return (
-                      <tr key={p.id} className="border-b border-brand-border/50 hover:bg-brand-bg/50 transition-colors">
+                      <tr key={p.id} className={`border-b border-brand-border/50 hover:bg-brand-bg/50 transition-colors ${recentlyAddedProductIds.has(p.id) ? 'bm-list-item-enter' : ''}`}>
                         <td className="py-3">{isEd ? <input className="bg-brand-bg border border-brand-border rounded px-2 py-1 w-32 outline-none" value={editForm.name} onChange={e=>setEditForm({...editForm,name:e.target.value})} /> : <span className="font-medium">{p.name}</span>}</td>
                         <td className="py-3">{isEd ? <input className="bg-brand-bg border border-brand-border rounded px-2 py-1 w-24 outline-none" value={editForm.category} onChange={e=>setEditForm({...editForm,category:e.target.value})} /> : <span className="text-muted-foreground">{p.category}</span>}</td>
+                        <td className="py-3">
+                          {isEd ? (
+                            <input
+                              type="checkbox"
+                              aria-label={`Marcar ${p.name} como prótese capilar`}
+                              checked={Boolean(editForm.isProsthesisCapillary)}
+                              onChange={e => setEditForm({ ...editForm, isProsthesisCapillary: e.target.checked })}
+                              className="h-4 w-4 accent-brand-gold"
+                            />
+                          ) : p.isProsthesisCapillary ? (
+                            <span className="rounded bg-brand-gold/10 px-2 py-1 text-xs font-medium text-brand-gold">Sim</span>
+                          ) : <span className="text-muted-foreground">—</span>}
+                        </td>
                         <td className="py-3">{isEd ? <input type="number" className="bg-brand-bg border border-brand-border rounded px-2 py-1 w-20 outline-none" value={editForm.price} onChange={e=>setEditForm({...editForm,price:e.target.value})} /> : brl(p.price)}</td>
                         <td className="py-3">{isEd ? <input type="number" className="bg-brand-bg border border-brand-border rounded px-2 py-1 w-20 outline-none" value={editForm.cost} onChange={e=>setEditForm({...editForm,cost:e.target.value})} /> : brl(p.cost)}</td>
                          <td className="py-3 text-muted-foreground">{margem === null ? '—' : `${Math.round(margem)}%`}</td>
@@ -158,7 +255,7 @@ export default function Produtos() {
             </div>
             {/* Mobile cards */}
             <div className="md:hidden space-y-3">
-              {products.map(p => {
+              {visibleProducts.map(p => {
                 const st = productStatus(p);
                 const stClass = st === 'critical' ? 'text-destructive bg-destructive/10' : st === 'low' ? 'text-warning bg-warning/10' : 'text-success bg-success/10';
                  const margem = p.price > 0 ? ((p.price - p.cost) / p.price) * 100 : null;
@@ -166,9 +263,18 @@ export default function Produtos() {
                 const stockRatio = Math.min(p.stock / (Math.max(p.stock, p.minStock) * 1.5 || 5), 1) * 100;
                 return editingId === p.id ? (
                   <div key={p.id} className="min-w-0 p-3 sm:p-4 bg-brand-bg border border-brand-gold rounded-xl">
-                    <form onSubmit={event => { event.preventDefault(); void saveEdit(); }} className="grid grid-cols-1 sm:grid-cols-2 gap-3 [&_input]:min-h-11">
+                    <form onSubmit={event => { event.preventDefault(); void saveEdit(); }} className="grid grid-cols-1 sm:grid-cols-2 gap-3 [&_input:not([type=checkbox])]:min-h-11">
                       <div className="sm:col-span-2"><label className="text-xs uppercase text-muted-foreground">Produto</label><input value={editForm.name ?? ''} onChange={event => setEditForm({ ...editForm, name: event.target.value })} className="w-full bg-brand-surface border border-brand-border rounded px-3 py-2 text-sm outline-none" /></div>
                       <div className="sm:col-span-2"><label className="text-xs uppercase text-muted-foreground">Categoria</label><input value={editForm.category ?? ''} onChange={event => setEditForm({ ...editForm, category: event.target.value })} className="w-full bg-brand-surface border border-brand-border rounded px-3 py-2 text-sm outline-none" /></div>
+                      <label className="sm:col-span-2 flex min-h-11 items-center gap-2 text-sm text-foreground">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(editForm.isProsthesisCapillary)}
+                          onChange={event => setEditForm({ ...editForm, isProsthesisCapillary: event.target.checked })}
+                          className="h-4 w-4 accent-brand-gold"
+                        />
+                        Custo de prótese capilar
+                      </label>
                       <div><label className="text-xs uppercase text-muted-foreground">Preço de venda</label><input type="number" value={editForm.price ?? ''} onChange={event => setEditForm({ ...editForm, price: event.target.value })} className="w-full bg-brand-surface border border-brand-border rounded px-3 py-2 text-sm outline-none" /></div>
                       <div><label className="text-xs uppercase text-muted-foreground">Custo</label><input type="number" value={editForm.cost ?? ''} onChange={event => setEditForm({ ...editForm, cost: event.target.value })} className="w-full bg-brand-surface border border-brand-border rounded px-3 py-2 text-sm outline-none" /></div>
                       <div><label className="text-xs uppercase text-muted-foreground">Estoque mínimo</label><input type="number" value={editForm.minStock ?? ''} onChange={event => setEditForm({ ...editForm, minStock: event.target.value })} className="w-full bg-brand-surface border border-brand-border rounded px-3 py-2 text-sm outline-none" /></div>
@@ -179,11 +285,13 @@ export default function Produtos() {
                     </form>
                   </div>
                 ) : (
-                  <div data-testid={`mobile-product-card-${p.id}`} key={p.id} className={`min-w-0 p-3 sm:p-4 bg-brand-bg border border-brand-border rounded-xl border-l-[3px] ${st === 'critical' ? 'border-l-destructive' : st === 'low' ? 'border-l-warning' : 'border-l-success'}`}>
+                  <div data-testid={`mobile-product-card-${p.id}`} key={p.id} className={`min-w-0 p-3 sm:p-4 bg-brand-bg border border-brand-border rounded-xl border-l-[3px] ${st === 'critical' ? 'border-l-destructive' : st === 'low' ? 'border-l-warning' : 'border-l-success'} ${recentlyAddedProductIds.has(p.id) ? 'bm-list-item-enter' : ''}`}>
                     <div className="flex min-w-0 justify-between items-start gap-2 mb-3">
                       <div className="min-w-0">
                         <p data-testid={`mobile-product-name-${p.id}`} className="min-w-0 break-words [overflow-wrap:anywhere] font-bold text-sm">{p.name}</p>
-                        <p data-testid={`mobile-product-category-${p.id}`} className="min-w-0 break-words [overflow-wrap:anywhere] text-xs text-muted-foreground">{p.category}</p>
+                        <p data-testid={`mobile-product-category-${p.id}`} className="min-w-0 break-words [overflow-wrap:anywhere] text-xs text-muted-foreground">
+                          {p.category}{p.isProsthesisCapillary ? ' · prótese capilar' : ''}
+                        </p>
                       </div>
                       <span className={`shrink-0 px-2 py-0.5 rounded text-xs font-bold ${stClass}`}>{p.stock} un.</span>
                     </div>
@@ -215,6 +323,8 @@ export default function Produtos() {
                 );
               })}
             </div>
+              </>
+            )}
           </>
         )}
       </div>

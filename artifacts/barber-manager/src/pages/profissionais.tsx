@@ -13,6 +13,7 @@ import {
   OrganizationJoinRequestEventType,
 } from '@/data/api';
 import { useAuth } from '@/auth/auth';
+import { useRecentlyAddedIds } from '@/hooks/useRecentlyAddedIds';
 import { toast } from 'sonner';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Users, Plus, Trash2, Edit2, Mail, Phone, UserPlus, Copy, RefreshCw, Ban, CheckCircle2, Clock, UserCheck, UserX, ShieldAlert, Archive, RotateCcw } from 'lucide-react';
@@ -57,6 +58,7 @@ const getJoinRequestEventLabel = (event: OrganizationJoinRequestEvent) => {
 
 export default function Profissionais() {
   const { professionals, config, addProfessional, updateProfessional, removeProfessional, isLoading } = useStore();
+  const recentlyAddedProfessionalIds = useRecentlyAddedIds(professionals, isLoading);
   const { profile, viewAsProfile } = useAuth();
   const activeProfile = viewAsProfile ?? profile;
   const isManager = activeProfile?.role === 'gestor' || activeProfile?.role === 'dev-admin';
@@ -637,13 +639,13 @@ export default function Profissionais() {
   };
 
   return (
-    <div className="p-5 md:p-8 space-y-6 max-w-7xl mx-auto">
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+    <div className="p-4 sm:p-5 md:p-8 space-y-5 md:space-y-6 max-w-7xl mx-auto">
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 md:gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-foreground">Equipe</h2>
+          <h2 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">Equipe</h2>
           <p className="text-sm text-muted-foreground mt-1">{professionals.length} profissionais cadastrados</p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap md:w-auto">
           {canGrantManagerAccess && (
             <button
               type="button"
@@ -651,7 +653,7 @@ export default function Profissionais() {
                 setManagerGrantEmail('');
                 setManagerGrantOpen(true);
               }}
-              className="inline-flex items-center gap-2 rounded-lg border border-brand-gold/40 px-4 py-2 text-sm font-semibold text-brand-gold hover:bg-brand-gold/10"
+              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-brand-gold/40 px-4 py-2 text-sm font-semibold text-brand-gold hover:bg-brand-gold/10 sm:w-auto"
             >
               <UserPlus className="h-4 w-4" /> Vincular Gestor
             </button>
@@ -660,14 +662,14 @@ export default function Profissionais() {
             <button
               type="button"
               onClick={() => openReceptionInvite()}
-              className="inline-flex items-center gap-2 rounded-lg border border-brand-border px-4 py-2 text-sm font-semibold text-foreground hover:border-brand-gold hover:text-brand-gold"
+              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-brand-border px-4 py-2 text-sm font-semibold text-foreground hover:border-brand-gold hover:text-brand-gold sm:w-auto"
             >
               <Mail className="h-4 w-4" /> Convidar Recepção
             </button>
           )}
           <Dialog open={isOpen} onOpenChange={setIsOpen}>
           <DialogTrigger asChild>
-            <button onClick={handleOpenNew} className="bg-brand-gold text-brand-bg px-4 py-2 rounded-lg text-sm font-bold hover:bg-brand-gold/90 flex items-center gap-2">
+            <button onClick={handleOpenNew} className="min-h-11 w-full justify-center bg-brand-gold text-brand-bg px-4 py-2 rounded-lg text-sm font-bold hover:bg-brand-gold/90 flex items-center gap-2 sm:w-auto">
               <Plus className="w-4 h-4" /> Adicionar Profissional
             </button>
           </DialogTrigger>
@@ -1324,7 +1326,7 @@ export default function Profissionais() {
           {professionals.map(p => {
             const contact = contactsForProfessional(p.id);
             return (
-            <div key={p.id} className={`bg-brand-surface border rounded-2xl p-5 flex flex-col ${!p.isActive ? 'border-brand-border/50 opacity-75' : 'border-brand-border hover:border-brand-gold/30'} transition-all`}>
+            <div key={p.id} className={`bg-brand-surface border rounded-2xl p-5 flex flex-col ${!p.isActive ? 'border-brand-border/50 opacity-75' : 'border-brand-border hover:border-brand-gold/30'} transition-all ${recentlyAddedProfessionalIds.has(p.id) ? 'bm-list-item-enter' : ''}`}>
               <div className="flex justify-between items-start mb-4">
                 <div className="flex items-center gap-3">
                   <div className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg" style={{ backgroundColor: p.color }}>
@@ -1370,11 +1372,11 @@ export default function Profissionais() {
               <div className="flex-1 bg-brand-bg rounded-xl p-3 border border-brand-border/50 mb-4">
                 <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Comissões Ativas</p>
                 <div className="flex flex-wrap gap-2">
-                  <span className="text-[10px] bg-brand-gold/10 text-brand-gold px-2 py-1 rounded font-medium">
+                  <span className="text-[11px] sm:text-[10px] bg-brand-gold/10 text-brand-gold px-2 py-1 rounded font-medium">
                     Serviço: {Math.round(PROFESSIONAL_SERVICE_COMMISSION_RATE * 100)}% profissional / 50% salão
                   </span>
                   {PROFESSIONAL_SALES_COMMISSION_FIELDS.filter(({ key }) => p.commissions[key] > 0).map(({ key, label }) => (
-                    <span key={key} className="text-[10px] bg-brand-gold/10 text-brand-gold px-2 py-1 rounded font-medium">
+                    <span key={key} className="text-[11px] sm:text-[10px] bg-brand-gold/10 text-brand-gold px-2 py-1 rounded font-medium">
                       Venda de {label}: {Math.round(p.commissions[key] * 100)}%
                     </span>
                   ))}
