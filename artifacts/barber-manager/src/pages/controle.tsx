@@ -1,20 +1,25 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useStore, brl, productStatus, EXPENSE_CATEGORIES, PAY_LABELS, ExpenseCategory, PayMethod, PaymentSplit, ProfessionalCommissions } from '@/data/store';
 import { useAuth } from '@/auth/auth';
 import { toast } from 'sonner';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Plus, Trash2, ArrowUpRight, ArrowDownRight, AlertTriangle } from 'lucide-react';
-import { formatDateKey } from '@/data/date';
+import { addSubscriptionCycle, formatDateKey } from '@/data/date';
+import { subscriptionReceiptDate } from '@/data/subscription-payment';
 import { canDeleteAttendance } from '@/data/attendance-deletion';
 import { api } from '@/data/api';
 import { normalizeClientPhone } from '@/data/client-phone';
 import { isAssignableProfessional } from '@/data/professional-selection';
 import { planServiceBenefits, planValuePerUse, subscriberServiceUsesRemaining } from '@/data/plan-usage';
 import {
+  appointmentProductsChargeTotal,
   clampManualCommissionAmount,
   manualCommissionAmountLimit,
   manualCommissionAllocationMatches,
+  automaticProsthesisProductId,
   professionalCommissionPool,
+  prosthesisCommissionForProfessional,
+  prosthesisProductCost,
   PROFESSIONAL_SERVICE_COMMISSION_RATE,
 } from '@/data/appointment-commissions';
 import {
@@ -31,8 +36,9 @@ import {
 
 export default function Controle() {
   const { 
-    professionals, products, appointments, expenses, config, plans, subscribers,
+    professionals, products, appointments, expenses, config, plans, subscribers, subscriptionPayments,
     clients, addClient, updateClient, removeClient, addVisit, removeVisit,
+    addSubscriber, setSubscriptionPaymentStatus,
     addAppointment, addExpense, removeAppointment, removeExpense, sellProduct, restock, isLoading
   } = useStore();
   const { profile, viewAsProfile } = useAuth();
@@ -48,9 +54,15 @@ export default function Controle() {
   const [client, setClient] = useState('');
   const [clientPhone, setClientPhone] = useState('');
   const [clientBirthday, setClientBirthday] = useState('');
+  const [anonymousAttendance, setAnonymousAttendance] = useState(false);
   const [service, setService] = useState('Barbearia');
   const [serviceId, setServiceId] = useState('');
   const [planSubscriberId, setPlanSubscriberId] = useState('');
+  const [showAssignPlan, setShowAssignPlan] = useState(false);
+  const [assignPlanId, setAssignPlanId] = useState('');
+  const [confirmPlanPayment, setConfirmPlanPayment] = useState(false);
+  const [assignPlanPaymentMethod, setAssignPlanPaymentMethod] = useState<PayMethod>('pix');
+  const [isAssigningPlan, setIsAssigningPlan] = useState(false);
   const [profId, setProfId] = useState('');
   const [additionalProfessionalIds, setAdditionalProfessionalIds] = useState<string[]>([]);
   const [manualCommissionAmounts, setManualCommissionAmounts] = useState<Record<string, string>>({});
@@ -59,7 +71,11 @@ export default function Controle() {
   const [tip, setTip] = useState('');
   const [payMethod, setPayMethod] = useState<PayMethod>('pix');
   const [notes, setNotes] = useState('');
-  const [apptProducts, setApptProducts] = useState<{productId: string, quantity: number}[]>([]);
+  const [apptProducts, setApptProducts] = useState<{
+    productId: string;
+    quantity: number;
+    isAutoAssigned?: boolean;
+  }[]>([]);
   const [paymentSplits, setPaymentSplits] = useState<PaymentSplit[]>([]);
 
   // Expense form
@@ -102,6 +118,13 @@ export default function Controle() {
   const serviceItem = config.services.find(s => s.id === serviceId && (s.isActive || Boolean(selectedPlanSubscriber)))
     ?? config.services.find(s => s.name === service && s.isActive)
     ?? config.services.find(s => s.isActive);
+  const isProsthesisApplication = serviceItem?.commissionKey === 'protese';
+  const autoProsthesisProductId = automaticProsthesisProductId(products);
+  const hasProsthesisProductSelected = apptProducts.some(item =>
+    item.quantity > 0
+    && products.some(product => product.id === item.productId && product.isProsthesisCapillary),
+  );
+  const markedProsthesisProducts = products.filter(product => product.isActive && product.isProsthesisCapillary);
   const selectedPlanBenefit = planBenefits.find(benefit => benefit.serviceId === serviceId);
   const isPlanMode = Boolean(selectedPlanSubscriber);
   const isPlanAttendance = Boolean(isPlanMode && selectedPlanBenefit);
@@ -111,22 +134,63 @@ export default function Controle() {
   const sellerCommRate = selectedSeller?.commissions[serviceKey] || 0;
   const serviceValue = isPlanMode ? 0 : parseFloat(value) || 0;
   const commissionBaseValue = isPlanAttendance ? planValueForUse : serviceValue;
-  const manualCommissionTarget = professionalCommissionPool(commissionBaseValue);
   const commissionBasisDescription = isPlanAttendance
     ? 'do valor rateado deste uso do plano'
     : 'do valor bruto do serviço';
+  const prosthesisCost = prosthesisProductCost(apptProducts, products);
+  useEffect(() => {
+    if (!isProsthesisApplication) {
+      setApptProducts(current => {
+        const manualProducts = current
+          .filter(item => !item.isAutoAssigned)
+          .map(({ isAutoAssigned: _isAutoAssigned, ...item }) => item);
+        return manualProducts.length === current.length
+          && manualProducts.every((item, index) => item === current[index])
+          ? current
+          : manualProducts;
+      });
+      return;
+    }
+
+    if (!autoProsthesisProductId) return;
+    setApptProducts(current => {
+      if (current.some(item => item.productId === autoProsthesisProductId)) return current;
+      const emptyRowIndex = current.findIndex(item => !item.productId);
+      if (emptyRowIndex >= 0) {
+        return current.map((item, index) => index === emptyRowIndex
+          ? { ...item, productId: autoProsthesisProductId, quantity: 1, isAutoAssigned: true }
+          : item);
+      }
+      return [...current, {
+        productId: autoProsthesisProductId,
+        quantity: 1,
+        isAutoAssigned: true,
+      }];
+    });
+  }, [autoProsthesisProductId, isProsthesisApplication, serviceId]);
+  const commissionForAssignedProfessional = (professionalId: string) => {
+    const professional = professionals.find(item => item.id === professionalId);
+    return isProsthesisApplication
+      ? prosthesisCommissionForProfessional(serviceValue, prosthesisCost, professional?.name ?? '')
+      : Number(manualCommissionAmounts[professionalId]) || 0;
+  };
   const manualAssignments = assignedProfessionalIds.map(id => ({
     professionalId: id,
-    amount: Number(manualCommissionAmounts[id]) || 0,
+    amount: commissionForAssignedProfessional(id),
   }));
   const manualCommissionTotal = Math.round((
-    assignedProfessionalIds.reduce((total, id) => total + (Number(manualCommissionAmounts[id]) || 0), 0)
+    manualAssignments.reduce((total, assignment) => total + assignment.amount, 0)
     + Number.EPSILON
   ) * 100) / 100;
+  const manualCommissionTarget = isProsthesisApplication
+    ? manualCommissionTotal
+    : professionalCommissionPool(commissionBaseValue);
   const calculatedComm = isManualCommissionMode
     ? manualCommissionTotal
-    : manualCommissionTarget;
-  const manualCommissionIsBalanced = manualCommissionAllocationMatches(
+    : isProsthesisApplication && selectedProf
+      ? prosthesisCommissionForProfessional(serviceValue, prosthesisCost, selectedProf.name)
+      : manualCommissionTarget;
+  const manualCommissionIsBalanced = isProsthesisApplication || manualCommissionAllocationMatches(
     commissionBaseValue,
     manualAssignments,
   );
@@ -194,12 +258,16 @@ export default function Controle() {
     setClientPhone(selected.whatsapp);
     setClientBirthday(selected.birthday ?? '');
     setPlanSubscriberId('');
+    setShowAssignPlan(false);
+    setConfirmPlanPayment(false);
     setClientSearch('');
   };
 
   const clearSelectedClient = () => {
     setSelectedClientId('');
     setPlanSubscriberId('');
+    setShowAssignPlan(false);
+    setConfirmPlanPayment(false);
     setClient('');
     setClientPhone('');
     setClientBirthday('');
@@ -209,19 +277,143 @@ export default function Controle() {
   const handleAddProduct = () => setApptProducts([...apptProducts, { productId: '', quantity: 1 }]);
   const updateApptProduct = (index: number, field: 'productId' | 'quantity', val: any) => {
     const newP = [...apptProducts];
-    newP[index] = { ...newP[index], [field]: val };
+    newP[index] = {
+      ...newP[index],
+      [field]: val,
+      ...(field === 'productId' ? { isAutoAssigned: false } : {}),
+    };
     setApptProducts(newP);
   };
   const removeApptProduct = (index: number) => setApptProducts(apptProducts.filter((_, i) => i !== index));
 
-  const totalProducts = apptProducts.reduce((sum, ap) => {
-    const p = products.find(prod => prod.id === ap.productId);
-    return sum + (p ? p.price * ap.quantity : 0);
-  }, 0);
+  const totalProducts = appointmentProductsChargeTotal(apptProducts, products, isProsthesisApplication);
+
+  const handleAssignPlan = async () => {
+    if (isAssigningPlan) return;
+    if (anonymousAttendance) {
+      toast.error('Informe o cliente para atribuir um plano.');
+      return;
+    }
+    const plan = plans.find(item => item.id === assignPlanId);
+    if (!plan) {
+      toast.error('Selecione um plano.');
+      return;
+    }
+    const benefits = planServiceBenefits(plan);
+    if (benefits.length === 0) {
+      toast.error('Este plano ainda não tem serviços e usos configurados.');
+      return;
+    }
+    const nextPayment = addSubscriptionCycle(today, plan.duration);
+    if (!nextPayment) {
+      toast.error('Não foi possível calcular o próximo vencimento deste plano.');
+      return;
+    }
+
+    setIsAssigningPlan(true);
+    try {
+      let clientRecord = selectedClient;
+      if (!clientRecord) {
+        if (!client.trim() || normalizedClientPhone.length < 10 || isDuplicateClientPhone) {
+          toast.error(isDuplicateClientPhone
+            ? 'Selecione o cliente existente pela busca para evitar duplicidade.'
+            : 'Informe o nome e o telefone com DDD do cliente.');
+          return;
+        }
+        const savedClient = await addClient({
+          name: client.trim(),
+          email: '',
+          whatsapp: normalizedClientPhone,
+          birthday: clientBirthday || undefined,
+          interest: 'barbearia',
+        }, undefined, { notifyOnError: false });
+        if (!savedClient) return;
+        clientRecord = savedClient;
+        setSelectedClientId(savedClient.id);
+        setClient(savedClient.name);
+        setClientPhone(savedClient.whatsapp);
+        setClientSearch('');
+      }
+
+      const existingSubscriber = matchedPlanSubscribers.find(item =>
+        item.planId === plan.id && item.status !== 'vencido' && item.nextPayment >= today
+      );
+      if (existingSubscriber?.status === 'ativo') {
+        setPlanSubscriberId(existingSubscriber.id);
+        setPaymentSplits([]);
+        const benefit = benefits.find(item => item.serviceId === serviceId) ?? benefits[0];
+        const includedService = config.services.find(item => item.id === benefit.serviceId);
+        if (includedService) {
+          setServiceId(includedService.id);
+          setService(includedService.name);
+        }
+        setValue('0');
+        toast.success('Este cliente já tem esse plano ativo; selecionado para o atendimento.');
+        setShowAssignPlan(false);
+        setAssignPlanId('');
+        setConfirmPlanPayment(false);
+        return;
+      }
+      const subscriber = existingSubscriber ?? await addSubscriber({
+        name: clientRecord.name,
+        phone: clientRecord.whatsapp,
+        planId: plan.id,
+        startDate: today,
+        nextPayment,
+        status: 'pendente',
+      });
+      if (!subscriber) return;
+
+      if (!confirmPlanPayment) {
+        toast.success(existingSubscriber
+          ? 'A assinatura já está pendente. Confirme o pagamento para liberar os usos.'
+          : 'Plano atribuído como pendente. Confirme o pagamento para liberar os usos.');
+        setShowAssignPlan(false);
+        setAssignPlanId('');
+        return;
+      }
+
+      const paymentSaved = await setSubscriptionPaymentStatus({
+        subscriberId: subscriber.id,
+        dueDate: subscriber.nextPayment,
+        status: 'pago',
+        paidAt: today,
+        amount: plan.price,
+        paymentMethod: assignPlanPaymentMethod,
+        note: 'Mensalidade inicial recebida no Controle Diário',
+      });
+      if (!paymentSaved) {
+        toast.warning('Plano atribuído, mas o pagamento não foi confirmado. Confirme a mensalidade antes de usar o plano.');
+        setShowAssignPlan(false);
+        setConfirmPlanPayment(false);
+        return;
+      }
+
+      setPlanSubscriberId(subscriber.id);
+      setPaymentSplits([]);
+      const benefit = benefits.find(item => item.serviceId === serviceId) ?? benefits[0];
+      const includedService = config.services.find(item => item.id === benefit.serviceId);
+      if (includedService) {
+        setServiceId(includedService.id);
+        setService(includedService.name);
+      }
+      setValue('0');
+      toast.success('Plano atribuído e mensalidade confirmada. O uso será descontado ao salvar o atendimento.');
+      setShowAssignPlan(false);
+      setAssignPlanId('');
+      setConfirmPlanPayment(false);
+    } finally {
+      setIsAssigningPlan(false);
+    }
+  };
 
   const handleRegisterAppt = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!client.trim() || !resolvedProfId || !serviceItem) { toast.error('Preencha os campos obrigatórios'); return; }
+    if ((!anonymousAttendance && !client.trim()) || !resolvedProfId || !serviceItem) { toast.error('Preencha os campos obrigatórios'); return; }
+    if (isProsthesisApplication && !hasProsthesisProductSelected) {
+      toast.error('Selecione um produto marcado como prótese capilar para registrar o custo e o consumo.');
+      return;
+    }
     if (additionalProfessionalIds.some(id => !id)) {
       toast.error('Selecione todos os profissionais adicionados ou remova os campos vazios.');
       return;
@@ -252,6 +444,11 @@ export default function Controle() {
       return;
     }
 
+    if (anonymousAttendance && planSubscriberId) {
+      toast.error('Atendimentos sem identificação não podem usar plano.');
+      return;
+    }
+
     if (planSubscriberId) {
       const planSubscriber = usablePlanSubscribers.find(item => item.id === planSubscriberId);
       const plan = plans.find(item => item.id === planSubscriber?.planId);
@@ -266,12 +463,12 @@ export default function Controle() {
       }
     }
 
-    if (!selectedClient && clientPhone.trim() && normalizedClientPhone.length < 10 && !isDuplicateClientPhone) {
+    if (!anonymousAttendance && !selectedClient && clientPhone.trim() && normalizedClientPhone.length < 10 && !isDuplicateClientPhone) {
       toast.error('Informe o telefone com DDD para cadastrar o cliente.');
       return;
     }
 
-    if (isManualCommissionMode && !manualCommissionIsBalanced) {
+    if (isManualCommissionMode && !isProsthesisApplication && !manualCommissionIsBalanced) {
       const difference = Math.round((manualCommissionTarget - manualCommissionTotal + Number.EPSILON) * 100) / 100;
       toast.error(
         difference > 0
@@ -286,7 +483,9 @@ export default function Controle() {
     const duration = serviceItem.duration;
     const currentTime = new Date().toTimeString().slice(0, 5);
     
-    const validProducts = apptProducts.filter(p => p.productId && p.quantity > 0);
+    const validProducts = apptProducts
+      .filter(product => product.productId && product.quantity > 0)
+      .map(({ productId, quantity }) => ({ productId, quantity }));
 
     // Aggregate quantities by productId so duplicate rows are combined
     const aggregated: Record<string, number> = {};
@@ -336,9 +535,9 @@ export default function Controle() {
 
     let clientRecord: Awaited<ReturnType<typeof addClient>> = null;
     let selectedVisitId: string | null = null;
-    let linkedClientId = selectedClient?.id;
+    let linkedClientId = anonymousAttendance ? undefined : selectedClient?.id;
     let clientSaveFailed = false;
-    if (selectedClient) {
+    if (!anonymousAttendance && selectedClient) {
       const savedVisit = await addVisit(selectedClient.id, {
         date: today,
         type: 'servico',
@@ -353,7 +552,7 @@ export default function Controle() {
         return;
       }
       selectedVisitId = savedVisit.id;
-    } else if (normalizedClientPhone) {
+    } else if (!anonymousAttendance && normalizedClientPhone) {
       clientRecord = await addClient({
         name: client.trim(),
         email: '',
@@ -378,18 +577,15 @@ export default function Controle() {
     const createdAppointment = await addAppointment({
       date: today,
       time: currentTime,
-      client: client.trim(),
-      clientPhone: normalizedClientPhone || undefined,
+      client: anonymousAttendance ? 'Atendimento sem identificação' : client.trim(),
+      clientPhone: anonymousAttendance ? undefined : normalizedClientPhone || undefined,
       clientId: linkedClientId,
       professionalId: resolvedProfId,
       serviceId: serviceItem?.id,
-      planSubscriberId: isPlanAttendance ? selectedPlanSubscriber?.id : undefined,
-      planUsageValue: isPlanAttendance ? planValueForUse : 0,
+       planSubscriberId: !anonymousAttendance && isPlanAttendance ? selectedPlanSubscriber?.id : undefined,
+       planUsageValue: !anonymousAttendance && isPlanAttendance ? planValueForUse : 0,
       professionalCommissions: isManualCommissionMode
-        ? assignedProfessionalIds.map(professionalId => ({
-            professionalId,
-            amount: Number(manualCommissionAmounts[professionalId]),
-          }))
+        ? manualAssignments
         : undefined,
       ...(isSalesAttributedService
         ? {
@@ -399,7 +595,8 @@ export default function Controle() {
         : {}),
       service,
       duration,
-      status: 'confirmed',
+      status: 'completed',
+      completedAt: currentTime,
       value: valNum,
       tip: tipNum,
       products: validProducts,
@@ -424,7 +621,9 @@ export default function Controle() {
       return;
     }
 
-    if (clientSaveFailed) {
+    if (anonymousAttendance) {
+      toast.success('Atendimento sem cliente identificado registrado.');
+    } else if (clientSaveFailed) {
       toast.warning('Atendimento registrado, mas o cliente não foi salvo. Cadastre-o depois pelo módulo Clientes.');
     } else {
       toast.success(clientRecord && !clientRecord.wasCreated
@@ -433,9 +632,9 @@ export default function Controle() {
           ? 'Atendimento registrado e incluído no histórico do cliente!'
           : 'Atendimento registrado!');
     }
-    const existingClient = selectedClient ?? (
+    const existingClient = !anonymousAttendance ? selectedClient ?? (
       clientRecord && !clientRecord.wasCreated ? clientRecord : undefined
-    );
+    ) : undefined;
     if (existingClient && clientBirthday && clientBirthday !== existingClient.birthday) {
       if (!await updateClient(existingClient.id, { birthday: clientBirthday })) {
         toast.warning('Atendimento registrado, mas não foi possível atualizar a data de nascimento do cliente.');
@@ -446,7 +645,7 @@ export default function Controle() {
         description: error instanceof Error ? error.message : 'Tente sincronizar novamente pela agenda.',
       });
     });
-    setSelectedClientId(''); setClientSearch(''); setClient(''); setClientPhone(''); setClientBirthday('');
+    setSelectedClientId(''); setClientSearch(''); setClient(''); setClientPhone(''); setClientBirthday(''); setAnonymousAttendance(false);
     setPlanSubscriberId(''); setServiceId('');
     setValue(''); setTip(''); setNotes(''); setApptProducts([]); setPaymentSplits([]); setSellerProfessionalId('');
     setAdditionalProfessionalIds([]); setManualCommissionAmounts({});
@@ -470,6 +669,10 @@ export default function Controle() {
   // Revenue derived from confirmed appointments (no stale income records)
   const todayAppts = appointments.filter(a => a.date === today && (a.status === 'confirmed' || a.status === 'completed'));
   const todayExpenses = expenses.filter(e => e.date === today);
+  const todaySubscriptionReceipts = subscriptionPayments.flatMap(payment => {
+    const receiptDate = subscriptionReceiptDate(payment);
+    return receiptDate === today ? [{ ...payment, receiptDate }] : [];
+  });
   const formatMovementTime = (value?: string) => {
     if (!value) return '—';
     if (/^\d{2}:\d{2}/.test(value)) return value.slice(0, 5);
@@ -487,6 +690,7 @@ export default function Controle() {
       const sellerAttribution = seller ? ` · Vendedor: ${seller}` : '';
       return {
         id: a.id,
+        source: 'appointment' as const,
         date: a.date,
         time: formatMovementTime(a.time),
         clientName: a.client,
@@ -495,10 +699,26 @@ export default function Controle() {
         type: 'in' as const
       };
     }),
-    ...todayExpenses.map(e => ({ ...e, time: formatMovementTime(e.createdAt), type: 'out' as const }))
+    ...todaySubscriptionReceipts.map(payment => {
+      const subscriber = subscribers.find(item => item.id === payment.subscriberId);
+      const plan = plans.find(item => item.id === subscriber?.planId);
+      const paymentMethod = payment.paymentMethod ? ` · ${PAY_LABELS[payment.paymentMethod]}` : '';
+      return {
+        id: `subscription-payment-${payment.id}`,
+        source: 'subscription_payment' as const,
+        date: payment.receiptDate,
+        time: '—',
+        clientName: subscriber?.name ?? 'Assinante removido',
+        description: `Mensalidade · ${subscriber?.name ?? 'Assinante removido'} — ${plan?.name ?? 'Plano'}${paymentMethod}`,
+        amount: payment.amount,
+        type: 'in' as const,
+      };
+    }),
+    ...todayExpenses.map(e => ({ ...e, source: 'expense' as const, time: formatMovementTime(e.createdAt), type: 'out' as const }))
   ].sort((a, b) => b.time.localeCompare(a.time));
 
-  const totalIn = todayAppts.reduce((s, a) => s + a.value + (a.tip || 0), 0);
+  const totalIn = todayAppts.reduce((s, a) => s + a.value + (a.tip || 0), 0) +
+    todaySubscriptionReceipts.reduce((sum, payment) => sum + payment.amount, 0);
   const totalOut = todayExpenses.reduce((s, e) => s + e.amount, 0);
   const alertProducts = products.filter(p => productStatus(p) !== 'ok');
 
@@ -628,8 +848,51 @@ export default function Controle() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Lançar Atendimento */}
         <div className="bg-brand-surface border border-brand-border rounded-2xl p-4 sm:p-6">
-          <h3 className="text-lg font-bold text-foreground mb-4">Registrar Atendimento</h3>
+          <div className="mb-5 flex items-start justify-between gap-3 border-b border-brand-border/70 pb-4">
+            <div>
+              <h3 className="text-lg font-bold text-foreground">Registrar Atendimento</h3>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Cliente ou atendimento sem identificação, serviço e pagamento em um único lançamento.</p>
+            </div>
+            <span className="shrink-0 rounded-full border border-brand-gold/30 bg-brand-gold/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-brand-gold">Novo</span>
+          </div>
           <form onSubmit={handleRegisterAppt} className="space-y-4 [&_input:not([type=checkbox]):not([type=radio])]:min-h-11 [&_select]:min-h-11">
+            <div className="border-b border-brand-border/70 pb-2">
+              <h4 className="text-xs font-bold uppercase tracking-wide text-brand-gold">1. Cliente</h4>
+              <p className="mt-1 text-xs text-muted-foreground">Busque um cadastro, informe os dados ou marque sem identificação.</p>
+            </div>
+            <label htmlFor="attendance-anonymous" className="flex cursor-pointer items-start gap-3 rounded-xl border border-brand-border bg-brand-bg p-3">
+              <input
+                id="attendance-anonymous"
+                data-testid="checkbox-anonymous-attendance"
+                type="checkbox"
+                checked={anonymousAttendance}
+                onChange={event => {
+                  const enabled = event.target.checked;
+                  setAnonymousAttendance(enabled);
+                  if (enabled) {
+                    setSelectedClientId('');
+                    setPlanSubscriberId('');
+                    setShowAssignPlan(false);
+                    setConfirmPlanPayment(false);
+                    setClientSearch('');
+                    setClient('');
+                    setClientPhone('');
+                    setClientBirthday('');
+                  }
+                }}
+                className="mt-0.5 h-4 w-4 shrink-0 accent-brand-gold"
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-foreground">Registrar sem nome do cliente</span>
+                <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">Não cria cadastro nem histórico de visita. Planos ficam indisponíveis.</span>
+              </span>
+            </label>
+            {anonymousAttendance ? (
+              <div role="status" data-testid="status-anonymous-attendance" className="rounded-lg border border-brand-gold/30 bg-brand-gold/10 px-3 py-2 text-sm text-foreground">
+                Este atendimento será salvo como “Sem identificação”.
+              </div>
+            ) : (
+              <>
             <div>
               <label htmlFor="attendance-client-search" className="text-xs font-semibold text-foreground uppercase tracking-wide">Buscar cliente cadastrado</label>
               {selectedClient || selectedClientId ? (
@@ -753,6 +1016,13 @@ export default function Controle() {
               />
               <p className="mt-1 text-xs text-muted-foreground">Opcional. Será salva no cadastro do cliente.</p>
             </div>
+              </>
+            )}
+
+            <div className="border-b border-brand-border/70 pb-2 pt-1">
+              <h4 className="text-xs font-bold uppercase tracking-wide text-brand-gold">2. Plano, serviço e profissional</h4>
+              <p className="mt-1 text-xs text-muted-foreground">Escolha um plano quando aplicável e indique quem realizou o atendimento.</p>
+            </div>
 
             <div>
               <label htmlFor="attendance-plan" className="text-xs font-semibold text-foreground uppercase tracking-wide">Plano do cliente</label>
@@ -788,7 +1058,9 @@ export default function Controle() {
                   </option>;
                 })}
               </select>
-              {!selectedClient && <p className="mt-1 text-xs text-muted-foreground">Selecione um cliente cadastrado para localizar o plano.</p>}
+              {anonymousAttendance
+                ? <p className="mt-1 text-xs text-muted-foreground">Identifique o cliente para consultar ou atribuir um plano.</p>
+                : !selectedClient && <p className="mt-1 text-xs text-muted-foreground">Selecione um cliente cadastrado para usar um plano; ou atribua um plano abaixo com nome e telefone.</p>}
               {selectedClient && matchedPlanSubscribers.length === 0 && (
                 <p className="mt-1 text-xs text-muted-foreground">Nenhum assinante correspondente foi encontrado. Confira o telefone ou o nome cadastrado no plano.</p>
               )}
@@ -801,6 +1073,91 @@ export default function Controle() {
               {selectedPlanSubscriber && planBenefits.length === 0 && (
                 <p className="mt-1 text-xs text-warning">Este plano ainda precisa de serviços e quantidades configurados para controlar os usos.</p>
               )}
+              {plans.length > 0 && !selectedPlanSubscriber && !anonymousAttendance && (
+                <div className="mt-3">
+                  {!showAssignPlan ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAssignPlanId(plans[0]?.id ?? '');
+                        setConfirmPlanPayment(false);
+                        setAssignPlanPaymentMethod(payMethod);
+                        setShowAssignPlan(true);
+                      }}
+                      className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-brand-gold/40 px-3 py-2 text-sm font-semibold text-brand-gold hover:bg-brand-gold/10"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Atribuir plano neste registro
+                    </button>
+                  ) : (
+                    <div className="space-y-3 rounded-xl border border-brand-gold/30 bg-brand-bg p-3 sm:p-4">
+                      <div>
+                        <label htmlFor="attendance-assign-plan" className="text-xs font-semibold uppercase tracking-wide text-foreground">Plano</label>
+                        <select
+                          id="attendance-assign-plan"
+                          data-testid="select-assign-plan"
+                          value={assignPlanId}
+                          onChange={event => setAssignPlanId(event.target.value)}
+                          className="mt-1 w-full rounded-lg border border-brand-border bg-brand-surface px-3 py-2 text-sm text-foreground"
+                        >
+                          {plans.map(plan => <option key={plan.id} value={plan.id}>{plan.name} · {brl(plan.price)}</option>)}
+                        </select>
+                      </div>
+                      <label className="flex min-h-11 items-start gap-2 text-sm text-foreground">
+                        <input
+                          type="checkbox"
+                          checked={confirmPlanPayment}
+                          onChange={event => setConfirmPlanPayment(event.target.checked)}
+                          className="mt-1 accent-brand-gold"
+                        />
+                        <span>O cliente já pagou a mensalidade</span>
+                      </label>
+                      {confirmPlanPayment && (
+                        <div>
+                          <label htmlFor="attendance-plan-payment-method" className="text-xs font-semibold uppercase tracking-wide text-foreground">Forma de pagamento</label>
+                          <select
+                            id="attendance-plan-payment-method"
+                            value={assignPlanPaymentMethod}
+                            onChange={event => setAssignPlanPaymentMethod(event.target.value as PayMethod)}
+                            className="mt-1 w-full rounded-lg border border-brand-border bg-brand-surface px-3 py-2 text-sm text-foreground"
+                          >
+                            {(['dinheiro', 'pix', 'debito', 'credito'] as PayMethod[]).map(method => (
+                              <option key={method} value={method}>{PAY_LABELS[method]}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        {confirmPlanPayment
+                          ? 'A mensalidade será registrada no caixa e os usos liberados.'
+                          : 'Sem confirmação, a assinatura ficará pendente e não entrará no caixa.'}
+                      </p>
+                      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowAssignPlan(false);
+                            setConfirmPlanPayment(false);
+                          }}
+                          className="min-h-10 rounded-lg border border-brand-border px-3 py-2 text-sm"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="button"
+                          data-testid="button-assign-plan"
+                          onClick={() => void handleAssignPlan()}
+                          disabled={isAssigningPlan || (!selectedClient && (!client.trim() || normalizedClientPhone.length < 10 || isDuplicateClientPhone))}
+                          className="min-h-10 rounded-lg bg-brand-gold px-3 py-2 text-sm font-bold text-brand-bg disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {isAssigningPlan ? 'Salvando...' : confirmPlanPayment ? 'Atribuir e confirmar pagamento' : 'Atribuir plano'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              {plans.length === 0 && <p className="mt-2 text-xs text-muted-foreground">Cadastre um plano em Planos e Mensalidades antes de atribuí-lo.</p>}
             </div>
             
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -922,10 +1279,12 @@ export default function Controle() {
               >
                 <div>
                   <h4 id="attendance-manual-commissions-title" className="text-sm font-bold text-brand-gold">
-                    Comissão manual por profissional
+                    {isProsthesisApplication ? 'Comissão por aplicação' : 'Comissão manual por profissional'}
                   </h4>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    O salão fica com 50% {commissionBasisDescription}. Informe quanto cada profissional recebe; a soma precisa fechar os outros 50%.
+                    {isProsthesisApplication
+                      ? 'Cada profissional recebe R$ 140,00 por aplicação. Marcos Macedo recebe 50% do lucro: valor do serviço menos o custo dos produtos consumidos.'
+                      : `O salão fica com 50% ${commissionBasisDescription}. Informe quanto cada profissional recebe; a soma precisa fechar os outros 50%.`}
                   </p>
                   {isSalesAttributedService && (
                     <p className="mt-1 text-xs text-muted-foreground">
@@ -937,54 +1296,69 @@ export default function Controle() {
                   const professional = professionals.find(item => item.id === id);
                   const maxCommission = manualCommissionLimitFor(id);
                   return (
-                    <label key={id} className="grid grid-cols-1 items-center gap-2 sm:grid-cols-[1fr_10rem]">
-                      <span className="text-sm font-medium">
-                        {professional?.name ?? 'Profissional'}
-                        <span className="ml-2 text-xs text-muted-foreground">Máx. {brl(maxCommission)}</span>
-                      </span>
-                      <span className="relative">
-                        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">R$</span>
-                        <input
-                          type="number"
-                          min="0"
-                          max={maxCommission}
-                          step="0.01"
-                          required
-                          aria-label={`Comissão de ${professional?.name ?? 'profissional'}`}
-                          data-testid={`input-attendance-manual-commission-${id}`}
-                          value={manualCommissionAmounts[id] ?? ''}
-                          onChange={event => handleManualCommissionChange(id, event.target.value)}
-                          className="w-full rounded-lg border border-brand-border bg-brand-bg py-2 pl-10 pr-3 text-sm text-foreground outline-none focus:border-brand-gold focus:ring-1 focus:ring-brand-gold"
-                        />
-                      </span>
-                    </label>
+                    isProsthesisApplication ? (
+                      <div key={id} className="flex items-center justify-between gap-3 rounded-lg bg-brand-bg/70 px-3 py-2 text-sm">
+                        <span>{professional?.name ?? 'Profissional'}</span>
+                        <strong className="text-brand-gold">{brl(commissionForAssignedProfessional(id))}</strong>
+                      </div>
+                    ) : (
+                      <label key={id} className="grid grid-cols-1 items-center gap-2 sm:grid-cols-[1fr_10rem]">
+                        <span className="text-sm font-medium">
+                          {professional?.name ?? 'Profissional'}
+                          <span className="ml-2 text-xs text-muted-foreground">Máx. {brl(maxCommission)}</span>
+                        </span>
+                        <span className="relative">
+                          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">R$</span>
+                          <input
+                            type="number"
+                            min="0"
+                            max={maxCommission}
+                            step="0.01"
+                            required
+                            aria-label={`Comissão de ${professional?.name ?? 'profissional'}`}
+                            data-testid={`input-attendance-manual-commission-${id}`}
+                            value={manualCommissionAmounts[id] ?? ''}
+                            onChange={event => handleManualCommissionChange(id, event.target.value)}
+                            className="w-full rounded-lg border border-brand-border bg-brand-bg py-2 pl-10 pr-3 text-sm text-foreground outline-none focus:border-brand-gold focus:ring-1 focus:ring-brand-gold"
+                          />
+                        </span>
+                      </label>
+                    )
                   );
                 })}
                 <div className="flex justify-between border-t border-brand-gold/20 pt-2 text-sm font-semibold">
-                  <span>Total informado</span>
+                  <span>{isProsthesisApplication ? 'Total das comissões' : 'Total informado'}</span>
                   <span className="text-brand-gold">{brl(manualCommissionTotal)}</span>
                 </div>
-                <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
-                  <div className="flex justify-between rounded-lg bg-brand-bg/70 px-3 py-2">
-                    <span>Parte dos profissionais ({Math.round(PROFESSIONAL_SERVICE_COMMISSION_RATE * 100)}%)</span>
-                    <strong>{brl(manualCommissionTarget)}</strong>
-                  </div>
-                  <div className="flex justify-between rounded-lg bg-brand-bg/70 px-3 py-2">
-                    <span>Parte do salão (50%)</span>
-                    <strong>{brl(manualCommissionTarget)}</strong>
-                  </div>
-                </div>
-                <p
-                  aria-live="polite"
-                  className={`text-xs ${manualCommissionIsBalanced ? 'text-emerald-400' : 'text-muted-foreground'}`}
-                  data-testid="attendance-manual-commission-balance"
-                >
-                  {manualCommissionIsBalanced
-                    ? 'Divisão completa. A soma das comissões corresponde à parte dos profissionais.'
-                    : manualCommissionTotal < manualCommissionTarget
-                      ? `Faltam ${brl(manualCommissionTarget - manualCommissionTotal)} para completar a parte dos profissionais.`
-                      : `Reduza ${brl(manualCommissionTotal - manualCommissionTarget)} para respeitar a parte dos profissionais.`}
-                </p>
+                {isProsthesisApplication ? (
+                  <p className="text-xs text-muted-foreground">
+                    Custo dos produtos consumidos usado no cálculo do lucro: {brl(prosthesisCost)}.
+                  </p>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
+                      <div className="flex justify-between rounded-lg bg-brand-bg/70 px-3 py-2">
+                        <span>Parte dos profissionais ({Math.round(PROFESSIONAL_SERVICE_COMMISSION_RATE * 100)}%)</span>
+                        <strong>{brl(manualCommissionTarget)}</strong>
+                      </div>
+                      <div className="flex justify-between rounded-lg bg-brand-bg/70 px-3 py-2">
+                        <span>Parte do salão (50%)</span>
+                        <strong>{brl(manualCommissionTarget)}</strong>
+                      </div>
+                    </div>
+                    <p
+                      aria-live="polite"
+                      className={`text-xs ${manualCommissionIsBalanced ? 'text-emerald-400' : 'text-muted-foreground'}`}
+                      data-testid="attendance-manual-commission-balance"
+                    >
+                      {manualCommissionIsBalanced
+                        ? 'Divisão completa. A soma das comissões corresponde à parte dos profissionais.'
+                        : manualCommissionTotal < manualCommissionTarget
+                          ? `Faltam ${brl(manualCommissionTarget - manualCommissionTotal)} para completar a parte dos profissionais.`
+                          : `Reduza ${brl(manualCommissionTotal - manualCommissionTarget)} para respeitar a parte dos profissionais.`}
+                    </p>
+                  </>
+                )}
               </section>
             )}
 
@@ -1026,18 +1400,35 @@ export default function Controle() {
                   <div className="space-y-1">
                     <div className="flex justify-between gap-3">
                       <span className="text-brand-gold font-medium">
-                        {isManualCommissionMode
+                        {isProsthesisApplication
+                          ? isManualCommissionMode ? 'Comissões de aplicação' : `Comissão do aplicador${selectedProf?.name.trim().toLowerCase() === 'marcos macedo' ? ' (50% do lucro)' : ' (fixa)'}`
+                          : isManualCommissionMode
                           ? 'Comissão dos profissionais (50%)'
                           : `Comissão do profissional (${Math.round(PROFESSIONAL_SERVICE_COMMISSION_RATE * 100)}%)`}
                       </span>
                       <span className="font-bold text-brand-gold">
-                        {brl(isManualCommissionMode ? manualCommissionTotal : calculatedComm)}
+                        {brl(isProsthesisApplication && isManualCommissionMode ? manualCommissionTotal : calculatedComm)}
                       </span>
                     </div>
-                    <div className="flex justify-between gap-3 text-xs text-muted-foreground">
-                      <span>Parte do salão (50%)</span>
-                      <span>{brl(manualCommissionTarget)}</span>
-                    </div>
+                    {isProsthesisApplication ? (
+                      <div className="space-y-1 text-xs text-muted-foreground">
+                        <div className="flex justify-between gap-3">
+                          <span>Custo dos produtos consumidos</span>
+                          <span>{brl(prosthesisCost)}</span>
+                        </div>
+                        {selectedProf?.name.trim().toLowerCase() === 'marcos macedo' && (
+                          <div className="flex justify-between gap-3">
+                            <span>Lucro considerado</span>
+                            <span>{brl(Math.max(0, serviceValue - prosthesisCost))}</span>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex justify-between gap-3 text-xs text-muted-foreground">
+                        <span>Parte do salão (50%)</span>
+                        <span>{brl(manualCommissionTarget)}</span>
+                      </div>
+                    )}
                     {sellerProfessionalId !== 'company' && selectedSeller && (
                       <div className="flex justify-between gap-3">
                         <span className="text-brand-gold font-medium">
@@ -1067,6 +1458,11 @@ export default function Controle() {
               </div>
             )}
 
+            <div className="border-b border-brand-border/70 pb-2 pt-1">
+              <h4 className="text-xs font-bold uppercase tracking-wide text-brand-gold">3. Valores, produtos e pagamento</h4>
+              <p className="mt-1 text-xs text-muted-foreground">Confira os valores e registre os itens consumidos antes de salvar.</p>
+            </div>
+
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                  <label className="text-xs font-semibold text-foreground uppercase tracking-wide">Valor do Serviço</label>
@@ -1080,13 +1476,27 @@ export default function Controle() {
             </div>
 
             <div>
-              <label className="text-xs font-semibold text-foreground uppercase tracking-wide mb-1 block">Produtos Consumidos</label>
+              <label className="text-xs font-semibold text-foreground uppercase tracking-wide mb-1 block">
+                Produtos Consumidos{isProsthesisApplication ? ' · custos descontados do lucro' : ''}
+              </label>
+              {isProsthesisApplication && (
+                <p className="mb-2 text-xs text-muted-foreground">
+                  O produto marcado como prótese capilar é adicionado automaticamente, descontado do estoque e do lucro do Marcos, sem cobrança extra ao cliente.
+                </p>
+              )}
+              {isProsthesisApplication && !hasProsthesisProductSelected && (
+                <p role="alert" className="mb-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+                  {markedProsthesisProducts.length === 0
+                    ? 'Marque o produto como prótese capilar em Produtos & Estoque para adicioná-lo automaticamente.'
+                    : 'Escolha um produto marcado como prótese capilar para registrar o custo corretamente.'}
+                </p>
+              )}
               <div className="space-y-2">
                 {apptProducts.map((ap, i) => (
                   <div key={i} className="flex gap-2 items-center">
                     <select value={ap.productId} onChange={e => updateApptProduct(i, 'productId', e.target.value)} className="min-h-11 min-w-0 flex-1 bg-brand-bg border border-brand-border rounded-lg px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-brand-gold outline-none">
                       <option value="">Selecione o produto...</option>
-                      {products.map(p => <option key={p.id} value={p.id}>{p.name} ({p.stock} em estoque)</option>)}
+                      {products.map(p => <option key={p.id} value={p.id}>{p.name}{p.isProsthesisCapillary ? ' · prótese capilar' : ''} ({p.stock} em estoque)</option>)}
                     </select>
                     <input type="number" min="1" value={ap.quantity} onChange={e => updateApptProduct(i, 'quantity', parseInt(e.target.value) || 1)} className="min-h-11 w-20 bg-brand-bg border border-brand-border rounded-lg px-3 py-2 text-sm text-foreground focus:ring-1 focus:ring-brand-gold outline-none" />
                     <button type="button" aria-label="Remover produto" onClick={() => removeApptProduct(i)} className="flex min-h-11 min-w-11 items-center justify-center rounded-lg p-2 text-destructive transition-all hover:bg-destructive/10 hover:scale-105"><Trash2 className="w-4 h-4" /></button>
@@ -1120,7 +1530,7 @@ export default function Controle() {
               <textarea value={notes} onChange={e => setNotes(e.target.value)} className="w-full bg-brand-bg border border-brand-border rounded-lg px-4 py-2 mt-1 text-sm text-foreground focus:ring-1 focus:ring-brand-gold outline-none h-20 resize-none"></textarea>
             </div>
 
-            <div data-testid="attendance-submit-bar">
+            <div data-testid="attendance-submit-bar" className="mt-2 border-t border-brand-border/70 pt-4">
               <button type="submit" data-testid="button-save-attendance" className="min-h-12 w-full rounded-xl bg-brand-gold py-3 font-bold text-brand-bg transition-all hover:bg-brand-gold/90">
                 Salvar atendimento · {brl(serviceValue + (parseFloat(tip)||0) + totalProducts)}
               </button>
@@ -1130,7 +1540,7 @@ export default function Controle() {
 
         <div className="space-y-6">
           {/* Lançar Despesa */}
-          {!isReceptionist && <div className="bg-brand-surface border border-brand-border rounded-2xl p-4 sm:p-6">
+          <div className="bg-brand-surface border border-brand-border rounded-2xl p-4 sm:p-6">
             <h3 className="text-lg font-bold text-foreground mb-4">Lançar Despesa</h3>
             <form onSubmit={handleAddExpense} className="space-y-4">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -1160,7 +1570,7 @@ export default function Controle() {
                 Registrar Despesa
               </button>
             </form>
-          </div>}
+          </div>
 
           {/* Estoque em Alerta */}
           {!isReceptionist && <div className="bg-brand-surface border border-brand-border rounded-2xl p-4 sm:p-6">
@@ -1249,7 +1659,11 @@ export default function Controle() {
                   </thead>
                   <tbody>
                     {movs.map(m => (
-                      <tr key={m.id} className="border-b border-brand-border/50 hover:bg-brand-bg/50 transition-colors">
+                      <tr
+                        key={m.id}
+                        data-testid={m.source === 'subscription_payment' ? 'daily-subscription-movement' : undefined}
+                        className="border-b border-brand-border/50 hover:bg-brand-bg/50 transition-colors"
+                      >
                         <td className="py-3">
                           {m.type === 'in' ? (
                             <span className="flex items-center gap-1 text-success text-xs font-medium"><ArrowUpRight className="w-4 h-4"/> Entrada</span>
@@ -1263,9 +1677,11 @@ export default function Controle() {
                           {m.type === 'in' ? '+' : '-'}{brl(m.amount)}
                         </td>
                         <td className="py-2 text-right">
-                          {m.type === 'in'
+                          {m.source === 'appointment'
                             ? deleteAttendanceAction(m.id, m.clientName)
-                            : deleteExpenseAction(m.id, m.description)}
+                            : m.source === 'expense'
+                              ? deleteExpenseAction(m.id, m.description)
+                              : null}
                         </td>
                       </tr>
                     ))}
@@ -1275,7 +1691,11 @@ export default function Controle() {
               {/* Mobile cards */}
               <div className="md:hidden space-y-2">
                 {movs.map(m => (
-                  <div key={m.id} className="p-3 bg-brand-bg border border-brand-border rounded-xl flex justify-between items-center gap-2">
+                  <div
+                    key={m.id}
+                    data-testid={m.source === 'subscription_payment' ? 'daily-subscription-movement' : undefined}
+                    className="p-3 bg-brand-bg border border-brand-border rounded-xl flex justify-between items-center gap-2"
+                  >
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium truncate">{m.description}</p>
                       <p className="text-xs text-muted-foreground tabular-nums mt-0.5">{m.time}</p>
@@ -1288,9 +1708,11 @@ export default function Controle() {
                     <span className={`font-bold text-sm ml-2 shrink-0 ${m.type === 'in' ? 'text-success' : 'text-destructive'}`}>
                       {m.type === 'in' ? '+' : '-'}{brl(m.amount)}
                     </span>
-                    {m.type === 'in'
+                    {m.source === 'appointment'
                       ? deleteAttendanceAction(m.id, m.clientName)
-                      : deleteExpenseAction(m.id, m.description)}
+                      : m.source === 'expense'
+                        ? deleteExpenseAction(m.id, m.description)
+                        : null}
                   </div>
                 ))}
               </div>
