@@ -224,12 +224,12 @@ export default function Comunicacao() {
     }
   };
 
-  if (isLoading) return <div className="p-5 md:p-8 text-muted-foreground">Carregando comunicação...</div>;
+  if (isLoading) return <div role="status" className="mx-auto max-w-7xl p-4 sm:p-5 md:p-8"><div className="h-8 w-48 animate-pulse rounded-lg bg-brand-border/50" /><div className="mt-5 grid gap-3 md:grid-cols-3">{CAMPAIGNS.map(item => <div key={item.id} className="h-28 animate-pulse rounded-2xl bg-brand-border/30" />)}</div><p className="sr-only">Carregando comunicação...</p></div>;
 
   return (
-    <div className="p-5 md:p-8 space-y-6 max-w-7xl mx-auto">
-      <div className="flex items-start gap-4 border-b border-brand-border pb-6">
-        <div className="p-3 rounded-xl bg-brand-surface border border-brand-border text-brand-gold"><MessageSquare className="w-6 h-6" /></div>
+    <div className="p-4 sm:p-5 md:p-8 space-y-5 md:space-y-6 max-w-7xl mx-auto">
+      <div className="flex items-start gap-3 border-b border-brand-border pb-4 sm:gap-4 sm:pb-6">
+        <div className="hidden sm:block p-3 rounded-xl bg-brand-surface border border-brand-border text-brand-gold"><MessageSquare className="w-6 h-6" /></div>
         <div>
           <h2 className="text-2xl font-bold">Disparos de Mensagens</h2>
           <p className="text-sm text-muted-foreground mt-1">Prepare campanhas segmentadas e encaminhe cada mensagem pelo canal escolhido.</p>
@@ -254,7 +254,7 @@ export default function Comunicacao() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] gap-6">
-        <section className="bg-brand-surface border border-brand-border rounded-2xl p-6 space-y-4">
+        <section className="bg-brand-surface border border-brand-border rounded-2xl p-4 sm:p-6 space-y-4">
           <div className="flex items-center justify-between gap-3">
             <div>
               <h3 className="text-lg font-bold">Mensagem da campanha</h3>
@@ -286,10 +286,10 @@ export default function Comunicacao() {
               <Copy className="w-4 h-4" /> Copiar lote para o n8n
             </button>
           </div>
-          <p className="text-xs text-muted-foreground">O Barber Manager abre o WhatsApp ou o aplicativo de e-mail com a mensagem preenchida. Confirme o envio no canal aberto; o início e eventuais bloqueios ficam registrados.</p>
+          <p className="text-xs text-muted-foreground">O Beauty Manager abre o WhatsApp ou o aplicativo de e-mail com a mensagem preenchida. Confirme o envio no canal aberto; o início e eventuais bloqueios ficam registrados.</p>
         </section>
 
-        <section className="bg-brand-surface border border-brand-border rounded-2xl p-6 space-y-4">
+        <section className="bg-brand-surface border border-brand-border rounded-2xl p-4 sm:p-6 space-y-4">
           <div className="flex items-center justify-between border-b border-brand-border/50 pb-4">
             <div>
               <h3 className="text-lg font-bold">{campaign.label}</h3>
@@ -326,7 +326,7 @@ export default function Comunicacao() {
         </section>
       </div>
 
-      <section className="bg-brand-surface border border-brand-border rounded-2xl p-6 space-y-4">
+      <section className="bg-brand-surface border border-brand-border rounded-2xl p-4 sm:p-6 space-y-4">
         <div className="flex items-center justify-between gap-3 border-b border-brand-border/50 pb-4">
           <div>
             <h3 className="text-lg font-bold">Histórico de envios</h3>
