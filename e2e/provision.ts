@@ -62,7 +62,7 @@ interface AuthUser {
   id: string;
 }
 
-const currentSchemaVersion = '2026-10-23.7';
+const currentSchemaVersion = '2026-10-28.1';
 const requiredSchemaTables = [
   ['organizations', 'id'],
   ['deployment_settings', 'setting_key,enabled'],
