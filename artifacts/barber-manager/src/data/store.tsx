@@ -94,6 +94,8 @@ export interface Appointment {
   planSubscriberId?: string;
   planUsageValue?: number;
   serviceCommissionRateSnapshot?: number;
+  prosthesisCostSnapshot?: number;
+  prosthesisCommissionRuleSnapshot?: boolean;
   professionalCommissions?: ProfessionalCommissionAssignment[];
   sellerProfessionalId?: string;
   sellerIsCompany?: boolean;
@@ -156,6 +158,7 @@ export interface Product {
   id: string;
   name: string;
   category: string;
+  isProsthesisCapillary: boolean;
   price: number;
   cost: number;
   stock: number;
@@ -397,7 +400,7 @@ export interface AppStoreValue {
 
   // Subscribers
   subscribers: Subscriber[];
-  addSubscriber: (s: Omit<Subscriber, 'id'>) => Promise<boolean>;
+  addSubscriber: (s: Omit<Subscriber, 'id'>) => Promise<Subscriber | null>;
   updateSubscriber: (id: string, s: Partial<Subscriber>) => Promise<boolean>;
   removeSubscriber: (id: string) => Promise<boolean>;
   renewSubscriberPlanUsages: (id: string) => Promise<boolean>;
@@ -439,7 +442,7 @@ export const DEFAULT_ROLES: RoleItem[] = [
 ];
 
 export const DEFAULT_CONFIG: BarbeariaConfig = {
-  name: 'Barber Manager', cnpj: '', address: '',
+  name: 'Beauty Manager', cnpj: '', address: '',
   services: DEFAULT_SERVICES, roles: DEFAULT_ROLES,
   paymentMethods: [
     { key: 'pix', label: 'PIX', isActive: true },
@@ -533,6 +536,7 @@ function ScopedAppStoreProvider({ children }: { children: ReactNode }) {
     }
 
     setIsLoading(true);
+    const canLoadFinancialData = profile.role !== 'recepcao';
 
     Promise.all([
       api.professionals.list(),
@@ -540,12 +544,12 @@ function ScopedAppStoreProvider({ children }: { children: ReactNode }) {
       api.blocks.list(),
       api.clients.list(),
       api.products.list(),
-      api.prothesisSales.list(),
-      api.mentoriaSessions.list(),
-      api.expenses.list(),
-      api.incomes.list(),
-      api.financeHistory.list(),
-      api.cashClosings.list(),
+      canLoadFinancialData ? api.prothesisSales.list() : Promise.resolve([]),
+      canLoadFinancialData ? api.mentoriaSessions.list() : Promise.resolve([]),
+      canLoadFinancialData ? api.expenses.list() : Promise.resolve([]),
+      canLoadFinancialData ? api.incomes.list() : Promise.resolve([]),
+      canLoadFinancialData ? api.financeHistory.list() : Promise.resolve([]),
+      canLoadFinancialData ? api.cashClosings.list() : Promise.resolve([]),
       api.plans.list(),
       api.subscribers.list(),
       api.subscriptionPayments.list(),
@@ -563,7 +567,11 @@ function ScopedAppStoreProvider({ children }: { children: ReactNode }) {
         }));
         setProducts((prods as unknown[]).map(x => {
           const product = cast<Partial<Product>>(x);
-          return { ...product, isActive: product.isActive ?? true } as Product;
+          return {
+            ...product,
+            isActive: product.isActive ?? true,
+            isProsthesisCapillary: product.isProsthesisCapillary ?? false,
+          } as Product;
         }));
         setProthesisSales((psales as unknown[]).map(cast<ProthesisSale>));
         setMentoriaSessions((msessions as unknown[]).map(cast<MentoriaSession>));
@@ -948,13 +956,15 @@ function ScopedAppStoreProvider({ children }: { children: ReactNode }) {
   const addExpense = useCallback(async (e: Omit<Expense, 'id'>) => {
     const newE: Expense = { ...e, id: uid() };
     const saved = await mutation(
-      () => api.expenses.create(newE as unknown as Record<string, unknown>),
+      () => api.expenses.create(newE as unknown as Record<string, unknown>, {
+        returnRepresentation: profile?.role !== 'recepcao',
+      }),
       'Erro ao salvar despesa',
     );
     if (!saved) return false;
     setExpenses(prev => [...prev, cast<Expense>(saved)]);
     return true;
-  }, []);
+  }, [profile?.role]);
 
   const updateExpense = useCallback(async (id: string, e: Partial<Expense>) => {
     const saved = await mutation(
@@ -1069,9 +1079,10 @@ function ScopedAppStoreProvider({ children }: { children: ReactNode }) {
       () => api.subscribers.create(newS as unknown as Record<string, unknown>),
       'Erro ao salvar assinante',
     );
-    if (!saved) return false;
-    setSubscribers(prev => [...prev, cast<Subscriber>(saved)]);
-    return true;
+    if (!saved) return null;
+    const subscriber = cast<Subscriber>(saved);
+    setSubscribers(prev => [...prev, subscriber]);
+    return subscriber;
   }, []);
 
   const updateSubscriber = useCallback(async (id: string, s: Partial<Subscriber>) => {
